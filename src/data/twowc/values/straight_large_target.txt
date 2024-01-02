@@ -1,0 +1,5 @@
+Training:
+Accuracy achieved: 0.7900000000000005
+Adjacency: 0.16630743371718956
+Trained for 670000 steps
+

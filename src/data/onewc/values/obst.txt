@@ -1,0 +1,23 @@
+Training:
+Accuracy achieved: 0.8100000000000005
+Trained for 270000 steps
+
+Test:
+Accurancies:
+   straight_hallway - 0.9400000000000006
+   left_door - 0.7300000000000004
+   center_door - 0.5700000000000003
+   right_door - 0.6000000000000003
+   two_doors - 0.8800000000000006
+   small_obstacle - 0.7500000000000004
+   big_obstacle - 0.7000000000000004
+   turn_left - 0.8600000000000005
+   turn_right - 0.15
+   curve_left - 0.8800000000000006
+   curve_right - 0.9300000000000006
+   full_turn_left - 0.8200000000000005
+   full_turn_right - 0.04
+   full_curve_left - 0.8700000000000006
+   full_curve_right - 0.3900000000000002
+Average: 0.6740000000000005
+Std deviation: 0.2706239703598582

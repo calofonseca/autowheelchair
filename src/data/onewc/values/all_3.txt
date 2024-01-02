@@ -1,0 +1,4 @@
+Training:
+Accuracy achieved: 0.8100000000000005
+Trained for 110000 steps
+

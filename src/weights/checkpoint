@@ -1,0 +1,2 @@
+model_checkpoint_path: "twowc_train_turns.h5f"
+all_model_checkpoint_paths: "twowc_train_turns.h5f"

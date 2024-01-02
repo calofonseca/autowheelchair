@@ -1,0 +1,24 @@
+<launch>
+
+    <include file="$(find flatland_server)/launch/server.launch">
+        <arg name="world_path" value="$(find autowheelchairs_flatland)/flatland_worlds/world.yaml"/>
+    </include>
+
+    <!-- Load map -->
+    <node pkg="map_server" type="map_server" name="map_server" output="screen" args="$(find autowheelchairs_flatland)/flatland_worlds/map.yaml">
+		<!-- <remap from="/map" to="/$(arg ns)/map"/> -->
+        <!--
+		<remap from="/tf" to="/$(arg ns)/tf"/>
+		<remap from="/clock" to="/$(arg ns)/clock"/>
+        -->
+    </node>
+
+    <!-- odom frame == map frame-->
+	<node pkg="tf" type="static_transform_publisher" name="link1_broadcaster" args="0 0 0 0 0 0 map odom 50">
+		<!--
+        <remap from="/tf" to="/$(arg ns)/tf"/>
+		<remap from="/clock" to="/$(arg ns)/clock"/>
+        -->
+	</node>
+
+</launch>
