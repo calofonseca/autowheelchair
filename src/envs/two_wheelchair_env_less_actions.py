@@ -113,10 +113,14 @@ class TwoWheelChairEnvLessActions(Env):
         while len(self.lidar_sample) != 19  or len(self.lidar_sample2) != 19 :pass
         self.state = np.array(self.lidar_sample + self.lidar_sample2)
 
-    def step(self, action):
+    def step(self, action, action2=-1):
         
-        a1 = action // 4
-        a2 = action % 4
+        if action2 != -1:
+            a1 = action
+            a2 = action2
+        else:
+            a1 = action // 4
+            a2 = action % 4
 
         self.change_robot_speed(1, self.actions[a1][0], self.actions[a1][1])
         self.change_robot_speed(2, self.actions[a2][0], self.actions[a2][1])
