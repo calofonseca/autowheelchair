@@ -7,7 +7,7 @@ from envs.one_wheelchair_env_with_dist import  OneWheelchairEnvWithDist
 from envs.two_wheelchair_env import TwoWheelChairEnv
 from envs.two_wheelchair_env_large_target import TwoWheelChairEnvLargeTarget
 from envs.two_wheelchair_env_less_actions import TwoWheelChairEnvLessActions
-#import maddpg as RLAgent
+from maddpg import MADDPG as RLAgent
 
 if __name__ == '__main__':
     if globals.use_two_wc:
@@ -31,8 +31,7 @@ if __name__ == '__main__':
     print(env.action_space.n)
     print(env.action_space)
    
-    raise NotImplementedError("Not implemented yet")
-    model = RLAgent(num_wheelchairs, states/2, actions/2, critic_units=[512, 256, 128], 
+    model = RLAgent(int(num_wheelchairs), int(38/2), int(4), critic_units=[512, 256, 128], 
                     actor_units=[256, 128, 64], lr_actor=0.0006343946342268605, lr_critic=0.0009067117952187151, 
                     gamma=0.9773507798877807, sigma=0.2264587893937525)
 
@@ -41,7 +40,7 @@ if __name__ == '__main__':
 
     if globals.train == 1:
         env.task = 'train'
-        model.learn(steps = globals.nsteps)
+        model.fit(env, total_steps = globals.nsteps)
         if globals.save:
             raise NotImplementedError("Could not save weights")
     elif globals.train == 2:
@@ -72,8 +71,7 @@ if __name__ == '__main__':
     if globals.test:
         env.reset_counters()
         env.task = 'test'
-        raise NotImplementedError("Not implemented yet the test")
-        scores = dqn.test(env, nb_episodes=globals.test_episodes, visualize=False)
+        scores = model.test(env, nb_episodes=globals.test_episodes, visualize=False)
         env.success_episodes / env.total_episodes
         print('Accurancy:', env.success_episodes / env.total_episodes, '/', globals.acc_thresh)
         print('Forward movements', env.forward_steps / env.total_steps, '/', globals.forward_movement_thresh)

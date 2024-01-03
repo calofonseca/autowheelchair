@@ -9,7 +9,7 @@ import numpy as np
 import random
 from collections import namedtuple, deque
 import copy
-
+from base import BaseClass as RL
 # conditional imports
 try:
     import torch
@@ -20,10 +20,10 @@ except ImportError:
     raise Exception("This functionality requires you to install torch. You can install torch by : pip install torch torchvision, or for more detailed instructions please visit https://pytorch.org.")
 
 
-class MADDPG(RLC):
-    def __init__(self, num_agents, agent_observation_size, agent_action_size, actor_units: list = [256, 128], critic_units: list = [256, 128],
-                 buffer_size: int = int(1e5), batch_size: int = 128, gamma: float = 0.99, sigma=0.2,
-                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.96, tau=1e-3, *args, **kwargs):
+class MADDPG(RL):
+    def __init__(self, num_agents, agent_observation_size, agent_action_size, actor_units: list = [512, 256, 128, 64, 32], critic_units: list = [1024, 512, 256, 128, 64, 32],
+                 buffer_size: int = int(1e5), batch_size: int = 128, gamma: float = 0.99, sigma=0.24,
+                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.995, tau=1e-3, *args, **kwargs):
 
         super().__init__(**kwargs)
 
@@ -32,6 +32,7 @@ class MADDPG(RLC):
 
         # Discount factor for the MDP
         self.gamma = gamma
+        self.decay_factor = decay_factor
 
         # Replay buffer and batch size
         self.replay_buffer = ReplayBuffer1(capacity=buffer_size, num_agents=self.num_agents)
@@ -53,41 +54,42 @@ class MADDPG(RLC):
         # Initialize actors and critics
         self.actors = [
             Actor(self.agent_observation_size, self.agent_action_size, self.seed, actor_units).to(
-                self.device) for i in range(len(self.num_agents))
+                self.device) for i in range(self.num_agents)
         ]
         self.critics = [
-            Critic(sum(self.agent_observation_size), sum(self.agent_action_size), self.seed, critic_units).to(
-                self.device) for _ in range(len(self.num_agents))
+            Critic(self.agent_observation_size*self.num_agents, self.agent_action_size*self.num_agents, self.seed, critic_units).to(
+                self.device) for i in range(self.num_agents)
         ]
 
         # Initialize target networks
         self.actors_target = [
             Actor(self.agent_observation_size, self.agent_action_size, self.seed, actor_units).to(
-                self.device) for i in range(len(self.num_agents))
+                self.device) for i in range(self.num_agents)
         ]
         self.critics_target = [
-            Critic(sum(self.agent_observation_size), sum(self.agent_action_size), self.seed, critic_units).to(
-                self.device) for _ in range(len(self.num_agents))
+            Critic(self.agent_observation_size*self.num_agents, self.agent_action_size*self.num_agents, self.seed, critic_units).to(
+                self.device) for i in range(self.num_agents)
         ]
 
         self.actors_optimizer = [torch.optim.Adam(self.actors[i].parameters(), lr=lr_actor) for i in
-                                 range(len(self.num_agents))]
+                                 range(self.num_agents)]
         self.critics_optimizer = [torch.optim.Adam(self.critics[i].parameters(), lr=lr_critic) for i in
-                                  range(len(self.num_agents))]
+                                  range(self.num_agents)]
 
-        self.noise = [OUNoise(self.action_space[i].shape[0], self.seed, sigma=sigma, decay_factor=decay_factor) for i in range(len(self.action_space))]
-
+        self.epsilon = 1  # for epsilon-greedy action selection
         self.scaler = GradScaler()
         self.exploration_done = False
 
     def update(self, observations, actions, reward, next_observations, done):
-        self.replay_buffer.push(observations, actions, reward, next_observations, done)
+
+        # One-hot encode actions before storing them
+        one_hot_actions = [self.one_hot_encode(act, self.agent_action_size) for act in actions]
+        self.replay_buffer.push(observations, one_hot_actions, reward, next_observations, done)
 
         if len(self.replay_buffer) < self.batch_size:
             print("returned due to buffer")
             return
 
-        print("training")
         obs_batch, actions_batch, rewards_batch, next_obs_batch, dones_batch = self.replay_buffer.sample(
             self.batch_size)
 
@@ -97,7 +99,7 @@ class MADDPG(RLC):
         reward_tensors = []
         dones_tensors = []
 
-        for agent_num in range(len(self.num_agents)):
+        for agent_num in range(self.num_agents):
             obs_tensors.append(
                 torch.stack([torch.FloatTensor(self.get_encoded_observations(agent_num, obs)).to(self.device)
                              for obs in obs_batch[agent_num]]))
@@ -119,6 +121,8 @@ class MADDPG(RLC):
         for agent_num, (actor, critic, actor_target, critic_target, actor_optim, critic_optim) in enumerate(
                 zip(self.actors, self.critics, self.actors_target, self.critics_target, self.actors_optimizer,
                     self.critics_optimizer)):
+
+
 
             with autocast():
                 # Update critic
@@ -154,19 +158,27 @@ class MADDPG(RLC):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def get_deterministic_actions(self, observations):
+
         with torch.no_grad():
             encoded_observations = [self.get_encoded_observations(i, obs) for i, obs in enumerate(observations)]
-            to_return = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
-                    for actor, obs in zip(self.actors, encoded_observations)]
-            return to_return
+            actions_probs = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
+                     for actor, obs in zip(self.actors, encoded_observations)]
+            r = [self.one_hot_decode(action_prob) for action_prob in actions_probs]
+            return r
+
+    def get_exploration_prediction(self, states: List[List[float]]) -> List[float]:
+        if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
+            return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
+        else:
+            return self.get_deterministic_actions(states)
+
+    def update_epsilon(self):  # Call this method at the end of each episode if you want epsilon to decay
+        self.epsilon = max(self.epsilon * self.decay_factor, 0.01)  
 
     def predict(self, observations, deterministic=False):
         actions_return = None
-        if self.time_step > self.end_exploration_time_step or deterministic:
-            if deterministic:
-                actions_return = self.get_deterministic_actions(observations)
-            else:
-                actions_return = self.get_exploration_prediction(observations)
+        if deterministic:
+            actions_return = self.get_deterministic_actions(observations)
         else:
             actions_return = self.get_exploration_prediction(observations)
 
@@ -178,23 +190,24 @@ class MADDPG(RLC):
             actions_return = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
                     for actor, obs in zip(self.actors, encoded_observations)]
         return actions_return
-
-    def get_exploration_prediction(self, states: List[List[float]]) -> List[float]:
-        deterministic_actions = self.get_deterministic_actions(states)
-
-        random_noises = [noise.sample() for noise in self.noise]
-
-        actions = [action + noise for action, noise in zip(deterministic_actions, random_noises)]
-        clipped_actions = [np.clip(action, -1, 1) for action in actions]
-        actions_return = [action.tolist() for action in clipped_actions]
-
-        return actions_return
+    
 
     def get_encoded_observations(self, index: int, observations: List[float]) -> npt.NDArray[np.float64]:
         return np.array([j for j in np.hstack(np.array(observations, dtype=float)) if j != None], dtype = float)
 
     def reset(self):
         super().reset()
+    
+    def one_hot_encode(self, action, action_size):
+        """Converts a discrete action into a one-hot encoded vector."""
+        one_hot_vector = np.zeros(action_size, dtype=np.float32)
+        one_hot_vector[action] = 1
+        return one_hot_vector
+    
+    def one_hot_decode(self, encoded_action):
+        """Converts a one-hot encoded vector back into a discrete action."""
+        return np.argmax(encoded_action)  # Adding 1 to shift from 0-based index to 1-based action numbering
+
 
 class Actor(nn.Module):
     """Actor (Policy) Model."""
@@ -225,12 +238,14 @@ class Actor(nn.Module):
         self.fc_layers = nn.ModuleList(self.fc_layers)
 
     def forward(self, state):
-        """Build an actor (policy) network that maps states -> actions."""
         x = state
         for fc in self.fc_layers[:-1]:
             x = F.relu(fc(x))
-        return torch.tanh(self.fc_layers[-1](x))
 
+        x = self.fc_layers[-1](x)
+        return F.softmax(x, dim=0)
+
+        return F.softmax(self.fc_layers[-1](x), dim=1)  # Softmax for probability distribution
 
 class Critic(nn.Module):
     """Critic (Value) Model."""
@@ -317,6 +332,7 @@ class ReplayBuffer1:
         self.buffer = [deque(maxlen=capacity) for _ in range(num_agents)]
 
     def push(self, state, action, reward, next_state, done):
+        
         for i in range(self.num_agents):
             self.buffer[i].append((state[i], action[i], reward[i], next_state[i], done))
 
@@ -328,6 +344,14 @@ class ReplayBuffer1:
 
             # For each agent's batch, separate the experiences into state, action, reward, next_state, done
             state_i, action_i, reward_i, next_state_i, done_i = zip(*batch)
+
+                    # Print the shapes of arrays
+            
+            # Print the shapes of individual elements within state_i
+            #print("Individual shapes for agent", i, "state_i:")
+            #for j, s in enumerate(action_i):
+            #    print(f"State {j} shape:", np.array(s))
+
             state.append(np.stack(state_i))
             action.append(np.stack(action_i))
             reward.append(np.stack(reward_i))

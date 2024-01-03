@@ -22,7 +22,7 @@ data_file = path_to_catkin + 'src/autowheelchairs_flatland/src/data/twowc/test/'
 use_two_wc = True
 
 #dont train (0), train by number of steps (1), train by threshold (2)
-train = 0
+train = 1
 #if train by number of steps
 nsteps = 50000
 #if train by threshold
@@ -35,7 +35,7 @@ test_episodes = 20
 
 #maps to use
 maps = {
-    'straight_hallway':{'usage':False, 'robot_space':(0.725, 3.5, 'h'), 'end_space':(0.725, 5.5, 'h')},
+    'straight_hallway':{'usage':True, 'robot_space':(0.725, 3.5, 'h'), 'end_space':(0.725, 5.5, 'h')},
     'left_door':       {'usage':False, 'robot_space':(2.225, 3.5, 'h'), 'end_space':(2.225, 5.5, 'h')},
     'center_door':     {'usage':False, 'robot_space':(3.725, 3.5, 'h'), 'end_space':(3.725, 5.5, 'h')},
     'right_door':      {'usage':False, 'robot_space':(5.225, 3.5, 'h'), 'end_space':(5.225, 5.5, 'h')},
@@ -49,5 +49,5 @@ maps = {
     'full_turn_left':  {'usage':False, 'robot_space':(8.07, 0.5, 'h'), 'end_space':(6.93, 0.5, 'h')},
     'full_turn_right': {'usage':False, 'robot_space':(6.93, 0.5, 'h'), 'end_space':(8.07, 0.5, 'h')},
     'full_curve_left': {'usage':False, 'robot_space':(11.4, 0.5, 'h'), 'end_space':(9.6, 0.5, 'h')},
-    'full_curve_right':{'usage':True, 'robot_space':(9.6, 0.5, 'h'), 'end_space':(11.4, 0.5, 'h')}
+    'full_curve_right':{'usage':False, 'robot_space':(9.6, 0.5, 'h'), 'end_space':(11.4, 0.5, 'h')}
 }

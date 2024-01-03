@@ -153,14 +153,17 @@ class TwoWheelChairEnvLessActions(Env):
 
         if self.collisions:
             reward = -400
+            print("COLIDED")
             done = True
             self.data['end_condition'][-1] = 'collision'
         elif self.end_reached and self.end_reached2:
             reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
+            print("END REACHED")
             done = True
             self.data['end_condition'][-1] = 'finished'
         elif self.episode > self.max_episodes:
             reward = -(600 + self.forward_reward) 
+            print("EPISODES GREATER THAN")
             done = True
             self.data['end_condition'][-1] = 'time out'
         else:  
@@ -237,8 +240,19 @@ class TwoWheelChairEnvLessActions(Env):
         self.data['rewards'][-1].append(reward)
         self.data['positions'][-1].append((self.position, self.position2))
 
-        return self.state, reward, done, info
-    
+
+                # Modify the return statement to accommodate both single and multi-agent scenarios
+        if action2 != -1:  # Multi-agent setting
+            # Split the state for each agent based on your state formation
+            observations = [self.lidar_sample, self.lidar_sample2]  # Separate observations for each agent
+            rewards = [reward, reward]  # If shared rewards, otherwise calculate individually
+            dones = done  # Both agents likely share the same done flag in your scenario
+            infos = [{}, {}]  # Additional info if any, per agent
+            return observations, rewards, dones, infos
+        else:  # Single-agent setting
+            # For single-agent, return the entire state and single values for reward and done
+            return self.state, reward, done, {}  # Single values as usual
+        
     def action_reward(self, action, chair):
         if (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2):
             if action == 0: return 300 / self.max_episodes
@@ -322,8 +336,8 @@ class TwoWheelChairEnvLessActions(Env):
         self.data['positions'].append([(x,y,theta)])
         self.data['adjacency'].append([])
         self.data['end_condition'].append('time out')
-
-        return self.state
+   
+        return [self.lidar_sample, self.lidar_sample2]
 
     def sample_lidar(self,data):
         self.change_robot_speed(1,0,0)
