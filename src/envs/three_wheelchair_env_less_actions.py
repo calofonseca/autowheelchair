@@ -27,6 +27,7 @@ class TwoWheelChairEnvLessActions(Env):
         
         self.lidar_sample = []
         self.lidar_sample2 = []
+        self.lidar_sample3 = []
         
         self.collisions = False
         self.min_distance = 0.4
@@ -35,6 +36,8 @@ class TwoWheelChairEnvLessActions(Env):
         self.end_reached = False
         self.finished2 = False
         self.end_reached2 = False
+        self.finished3 = False
+        self.end_reached3= False
         
         self.action_history = []
         self.rotation_counter = 0
@@ -47,6 +50,11 @@ class TwoWheelChairEnvLessActions(Env):
         self.rotations2 = 0
         self.consecutive_rotations2 = 0
 
+        self.action_history3= []
+        self.rotation_counter3 = 0
+        self.rotations3 = 0
+        self.consecutive_rotations3 = 0
+
         self.forward_reward = 0
 
         
@@ -55,6 +63,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.start_points = []
         self.position = (0,0,0)
         self.position2 = (0,0,0)
+        self.position3 = (0,0,0)
 
         self.task = 'none'
 
@@ -63,7 +72,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.reset_data()
         
         #ros topics and services
-        rospy.init_node('two_wheelchair_env', anonymous=True)
+        rospy.init_node('three_wheelchair_env', anonymous=True)
 
         self.scan_topic = "/static_laser1"   
         self.twist_topic = "/cmd_vel1"
@@ -76,6 +85,12 @@ class TwoWheelChairEnvLessActions(Env):
         self.odom_topic2 = "/odom2"
         self.prox_topic2 = "/prox_laser2"
 
+        self.scan_topic3 = "/static_laser3"   
+        self.twist_topic3 = "/cmd_vel3"
+        self.bumper_topic3 = "/collisions" #!!!!!!!
+        self.odom_topic3 = "/odom3"
+        self.prox_topic3 = "/prox_laser3"
+
 
         rospy.Subscriber(self.scan_topic, LaserScan, self.sample_lidar, buff_size=10000000, queue_size=1)
         rospy.Subscriber(self.bumper_topic, Collisions, self.check_collisions, buff_size=10000000, queue_size=1)
@@ -86,12 +101,17 @@ class TwoWheelChairEnvLessActions(Env):
         rospy.Subscriber(self.prox_topic2, LaserScan, self.check_finished2, buff_size=10000000, queue_size=1)
         rospy.Subscriber(self.odom_topic2, Odometry, self.update_position2, buff_size=10000000, queue_size=1)
 
+        rospy.Subscriber(self.scan_topic3, LaserScan, self.sample_lidar3, buff_size=10000000, queue_size=1)
+        rospy.Subscriber(self.bumper_topic3, Collisions, self.check_collisions3, buff_size=10000000, queue_size=1)
+        rospy.Subscriber(self.prox_topic3, LaserScan, self.check_finished3, buff_size=10000000, queue_size=1)
+        rospy.Subscriber(self.odom_topic3, Odometry, self.update_position3, buff_size=10000000, queue_size=1)
+
         rospy.wait_for_service("/move_model")
         self.move_model_service = rospy.ServiceProxy("/move_model", MoveModel)
 
         self.twist_pub = rospy.Publisher(self.twist_topic, Twist, queue_size=1)
         self.twist_pub2 = rospy.Publisher(self.twist_topic2, Twist, queue_size=1)
-
+        self.twist_pub3 = rospy.Publisher(self.twist_topic3, Twist, queue_size=1)
 
         #learning env
         linear_speed = 0.3
@@ -101,39 +121,36 @@ class TwoWheelChairEnvLessActions(Env):
                         (0, angular_speed), 
                         (0, -angular_speed)]
                         
-        n_actions = (len(self.actions) , len(self.actions))
+        n_actions = (len(self.actions) , len(self.actions), len(self.actions)) #!!!
                         
                         
-        self.action_space = Discrete(np.prod(n_actions))
+        self.action_space = Discrete(np.prod(n_actions)) #!!!
 
 
-        self.observation_space = Box(0, 2, shape=(1,(self.split + 7) * 2))
+        self.observation_space = Box(0, 2, shape=(1,(self.split + 7) * 2)) #!!!
         
         
-        while len(self.lidar_sample) != 19  or len(self.lidar_sample2) != 19 :pass
-        self.state = np.array(self.lidar_sample + self.lidar_sample2)
+        while len(self.lidar_sample) != 19  or len(self.lidar_sample2) != 19 or len(self.lidar_sample3) != 19:pass
+        self.state = np.array(self.lidar_sample + self.lidar_sample2 + self.lidar_sample3)
 
-    def step(self, action, action2=-1):
+    def step(self, action, action2=-1, action3=-1):
         
-        if action2 != -1: #Multi agent aaproach
+        if action2 != -1 and action3!=-1: #Multi agent aaproach
             a1 = action
             a2 = action2
+            a3 = action3
         else:
-            a1 = action // 4
-            a2 = action % 4
-        
-        reward=0
-        reward1 = 0
-        reward2 = 0
+            raise NotImplementedError()
 
         self.change_robot_speed(1, self.actions[a1][0], self.actions[a1][1])
         self.change_robot_speed(2, self.actions[a2][0], self.actions[a2][1])
+        self.change_robot_speed(3, self.actions[a3][0], self.actions[a3][1])
 
         self.action_n += 1
 
         while self.episode == self.action_n: pass
 
-        self.state = np.array(self.lidar_sample + self.lidar_sample2)
+        self.state = np.array(self.lidar_sample + self.lidar_sample2 + self.lidar_sample3)
         
         done = False
         
@@ -141,6 +158,7 @@ class TwoWheelChairEnvLessActions(Env):
             self.collisions = False
             self.finished = False
             self.finished2 = False
+            self.finished3 = False
 
         enter_end = False
         exit_end = False
@@ -155,29 +173,21 @@ class TwoWheelChairEnvLessActions(Env):
             else: enter_end = True
             self.end_reached2 = self.finished2
 
+        if self.end_reached3 != self.finished3:
+            if self.end_reached3: exit_end = True
+            else: enter_end = True
+            self.end_reached3 = self.finished3
+
         if self.collisions:
-            #reward = -400
-            reward1 -= 500
-            reward2 -= 500
+            reward = -400
             print("COLIDED")
             done = True
             self.data['end_condition'][-1] = 'collision'
-        elif self.end_reached or self.end_reached2:
-            if self.end_reached and self.end_reached2:
-                #reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
-                reward1 += 800
-                reward2 += 800
-                print("END REACHED")
-                done = True
-                self.data['end_condition'][-1] = 'finished'
-            elif self.end_reached and not self.end_reached2:
-                reward1 += 500
-                reward2 -= 100
-            elif not self.end_reached and self.end_reached2:
-                reward2 += 500
-                reward1 -= 100
-
-            
+        elif self.end_reached and self.end_reached2 and self.end_reached3:
+            reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
+            print("END REACHED")
+            done = True
+            self.data['end_condition'][-1] = 'finished'
         elif self.episode > self.max_episodes:
             reward = -(600 + self.forward_reward) 
             print("EPISODES GREATER THAN")
@@ -191,15 +201,20 @@ class TwoWheelChairEnvLessActions(Env):
 
         reward += self.action_reward(a1, 1)
         reward += self.action_reward(a2, 2)
+        reward += self.action_reward(a3, 2)
         
         if len(self.action_history) > 0:
             last_action = self.action_history[-1]
             if (last_action == 2 and a1 == 3) or (last_action == 3 and a1 == 2):
-                reward -= (100 / self.max_episodes) * 5
+                reward -= (300 / self.max_episodes) * 5
 
             last_action = self.action_history2[-1]
             if (last_action == 2 and a2 == 3) or (last_action == 3 and a2 == 2):
-                reward -= (100 / self.max_episodes) * 5
+                reward -= (300 / self.max_episodes) * 5
+
+            last_action = self.action_history3[-1]
+            if (last_action == 2 and a3 == 3) or (last_action == 3 and a3 == 2):
+                reward -= (300 / self.max_episodes) * 5
             
 
         if a1 == 2: self.rotation_counter += 1 
@@ -213,8 +228,7 @@ class TwoWheelChairEnvLessActions(Env):
                         self.consecutive_rotations = 0
                 self.consecutive_rotations += direction
                 self.rotations = rot
-                #reward -= 120 * abs(self.consecutive_rotations)
-                reward1 -= 120 * abs(self.consecutive_rotations)
+                reward -= 120 * abs(self.consecutive_rotations)
 
         if a2 == 3 or a2 == 5: self.rotation_counter2 += 1 
         elif a2 == 4 or a2 == 6: self.rotation_counter2 -= 1
@@ -227,33 +241,32 @@ class TwoWheelChairEnvLessActions(Env):
                         self.consecutive_rotations2 = 0
                 self.consecutive_rotations2 += direction
                 self.rotations2 = rot
-                #reward -= 120 * abs(self.consecutive_rotations2)
-                reward2 -= 120 * abs(self.consecutive_rotations)
+                reward -= 120 * abs(self.consecutive_rotations2)
+
+        if a3 == 3 or a3 == 5: self.rotation_counter3 += 1 
+        elif a3 == 4 or a3 == 6: self.rotation_counter3 -= 1
+        if self.rotation_counter3 % 30 == 0:
+            rot = self.rotation_counter3 / 30
+            if self.rotations3 != rot:
+                direction = rot - self.rotations3
+                if self.consecutive_rotations3 != 0:
+                    if direction != (self.consecutive_rotations3 / abs(self.consecutive_rotations3)):
+                        self.consecutive_rotations3 = 0
+                self.consecutive_rotations3 += direction
+                self.rotations3 = rot
+                reward -= 120 * abs(self.consecutive_rotations3)
         
-        reward1 += (self.lidar_sample[0] - 0.5) * (300 / self.max_episodes)
-        if self.lidar_sample[0] > 0.5: reward1 += ((self.lidar_sample[1] - 0.5) + (self.lidar_sample[2] - 0.5)) * (800/ self.max_episodes)
+        reward += (self.lidar_sample[0] - 0.5) * (600 / self.max_episodes)
+        if self.lidar_sample[0] > 0.5: reward += ((self.lidar_sample[1] - 0.5) + (self.lidar_sample[2] - 0.5)) * (300 / self.max_episodes)
 
-        reward2 += (self.lidar_sample2[0] - 0.5) * (300 / self.max_episodes)
-        if self.lidar_sample2[0] > 0.5: reward2 += ((self.lidar_sample2[1] - 0.5) + (self.lidar_sample2[2] - 0.5)) * (800 / self.max_episodes)
+        reward += (self.lidar_sample2[0] - 0.5) * (600 / self.max_episodes)
+        if self.lidar_sample2[0] > 0.5: reward += ((self.lidar_sample2[1] - 0.5) + (self.lidar_sample2[2] - 0.5)) * (300 / self.max_episodes)
 
+        reward += (self.lidar_sample3[0] - 0.5) * (600 / self.max_episodes)
+        if self.lidar_sample3[0] > 0.5: reward += ((self.lidar_sample3[1] - 0.5) + (self.lidar_sample3[2] - 0.5)) * (300 / self.max_episodes)
 
-
-        # Assuming similar logic as above, modifying for side distances
-        side_threshold = 0.5  # Define a threshold for side distances
-        for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
-            if self.lidar_sample[i] < side_threshold:
-                penalty = (side_threshold - self.lidar_sample[i]) * (300 / self.max_episodes)
-                reward1 -= penalty
-
-        # Repeat for lidar_sample2 if necessary
-        for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
-            if self.lidar_sample2[i] < side_threshold:
-                penalty = (side_threshold - self.lidar_sample2[i]) * (300 / self.max_episodes)
-                reward2 -= penalty
-
-
-        if max([self.lidar_sample[5], self.lidar_sample[6], self.lidar_sample2[5], self.lidar_sample2[6]]) <= 0.4 and abs(self.lidar_sample[5] - self.lidar_sample2[5]) <= 0.05 and abs(self.lidar_sample[6] - self.lidar_sample2[6]) <= 0.05:
-            reward += 20
+        if max([self.lidar_sample[5], self.lidar_sample[6], self.lidar_sample2[5], self.lidar_sample2[6], self.lidar_sample3[5], self.lidar_sample3[6]]) <= 0.4 and abs(self.lidar_sample[5] - self.lidar_sample2[5]) <= 0.05 and abs(self.lidar_sample2[5] - self.lidar_sample3[5]) <= 0.05 and abs(self.lidar_sample[6] - self.lidar_sample2[6]) <= 0.05 and abs(self.lidar_sample2[6] - self.lidar_sample3[6]) <= 0.05:
+            reward += 10
             self.data['adjacency'][-1].append(1)
             self.adj_steps += 1
         else: self.data['adjacency'][-1].append(0)
@@ -275,16 +288,12 @@ class TwoWheelChairEnvLessActions(Env):
         self.data['rewards'][-1].append(reward)
         self.data['positions'][-1].append((self.position, self.position2))
 
-        print("Rewards")
-        print(reward)
-        print(reward1)
-        print(reward2)
 
                 # Modify the return statement to accommodate both single and multi-agent scenarios
         if action2 != -1:  # Multi-agent setting
             # Split the state for each agent based on your state formation
             observations = [self.lidar_sample, self.lidar_sample2]  # Separate observations for each agent
-            rewards = [reward + reward1, reward + reward2]  # If shared rewards, otherwise calculate individually
+            rewards = [reward, reward]  # If shared rewards, otherwise calculate individually
             dones = done  # Both agents likely share the same done flag in your scenario
             infos = [{}, {}]  # Additional info if any, per agent
             return observations, rewards, dones, infos
@@ -292,23 +301,6 @@ class TwoWheelChairEnvLessActions(Env):
             # For single-agent, return the entire state and single values for reward and done
             return self.state, reward, done, {}  # Single values as usual
         
-    def apply_penalty_if_repetitive(self, action_history, a_current, reward):
-        # Ensure there are at least 5 actions to examine
-        if len(action_history) >= 5:
-            # Look at the last 5 actions, including the current action
-            last_five_actions = action_history[-4:] + [a_current]
-
-            # Check if all the last 5 actions are the same and not 0
-            if len(set(last_five_actions)) == 1 and last_five_actions[0] != 0:
-                # Apply the penalty
-                reward -= (100 / self.max_episodes) * 5
-
-        # Append the current action to the history for future checks
-        action_history.append(a_current)
-
-        # Return the modified reward
-        return reward
-
     def action_reward(self, action, chair):
         if (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2):
             if action == 0: return 300 / self.max_episodes
@@ -527,6 +519,63 @@ class TwoWheelChairEnvLessActions(Env):
             self.twist_pub.publish(twist_msg)
         if(robot == 2):
             self.twist_pub2.publish(twist_msg)
+
+    def reset_robots(self):
+        self.change_robot_position('robot1', 11.25, 4.5, 1.57079632679)
+        self.change_robot_position('robot2', 11.25, 4.2, 1.57079632679)
+        self.change_robot_position('prox', 11.25, 4.8, 0)
+
+    def change_robot_position(self, name, x, y, theta):
+        pose = Pose2D()
+        pose.x = x
+        pose.y = y
+        pose.theta = theta
+        self.move_model_service(name = name, pose = pose)
+
+    def reset_counters(self):
+        self.total_episodes = 0
+        self.success_episodes = 0
+        self.total_steps = 0
+        self.forward_steps = 0
+        self.adj_steps = 0
+
+    def reset_data(self):
+        self.data = {
+            'map':[],
+            'task':[],
+            'target':[],
+            'actions':[],
+            'rewards':[],
+            'positions':[],
+            'adjacency':[],
+            'end_condition':[]
+        }
+    
+    def dump_data(self, filename):
+        df = pd.DataFrame(self.data)
+        df.to_csv(filename)
+
+
+
+
+    def reset_data(self):
+        self.data = {
+            'map':[],
+            'task':[],
+            'target':[],
+            'actions':[],
+            'rewards':[],
+            'positions':[],
+            'adjacency':[],
+            'end_condition':[]
+        }
+    
+    def dump_data(self, filename):
+        df = pd.DataFrame(self.data)
+        df.to_csv(filename)
+
+
+
 
     def reset_robots(self):
         self.change_robot_position('robot1', 11.25, 4.5, 1.57079632679)

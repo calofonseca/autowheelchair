@@ -5,6 +5,7 @@ class BaseClass:
 
     def fit(self, env, total_steps):
         step_count = 0
+        end_reached=False
         while step_count < total_steps:
             print("RESETED")
             obs = env.reset()
@@ -15,9 +16,11 @@ class BaseClass:
                 self.update(obs, [action, action2], reward, next_obs, done)
                 obs = next_obs
                 step_count += 1
+                if env.end_reached and env.end_reached2:
+                    end_reached=True
                 # Update epsilon only every 200 steps
                 if step_count % 100 == 0:
-                    self.update_epsilon()
+                    self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
                     print("BREAKED")
                     break
@@ -37,7 +40,7 @@ class BaseClass:
                 action = self.predict(obs, deterministic=True)
                 next_obs, reward, done, _ = env.step(*action)
                 obs = next_obs
-                episode_reward += reward
+                episode_reward += reward[0]
 
                 if done:
                     break

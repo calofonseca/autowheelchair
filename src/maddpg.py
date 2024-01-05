@@ -168,12 +168,17 @@ class MADDPG(RL):
 
     def get_exploration_prediction(self, states: List[List[float]]) -> List[float]:
         if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
+            print("RANDOM")
             return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
         else:
+            print("DETERMINISTIC")
             return self.get_deterministic_actions(states)
 
-    def update_epsilon(self):  # Call this method at the end of each episode if you want epsilon to decay
-        self.epsilon = max(self.epsilon * self.decay_factor, 0.01)  
+    def update_epsilon(self, end_reached):  # Call this method at the end of each episode if you want epsilon to decay
+        if end_reached:
+            self.epsilon = max(self.epsilon * self.decay_factor, 0.05)  
+        else:
+            self.epsilon = max(self.epsilon * self.decay_factor, 0.20)
 
     def predict(self, observations, deterministic=False):
         actions_return = None
@@ -208,6 +213,27 @@ class MADDPG(RL):
         """Converts a one-hot encoded vector back into a discrete action."""
         return np.argmax(encoded_action)  # Adding 1 to shift from 0-based index to 1-based action numbering
 
+    def save_weights(self, filename_prefix):
+        """Save all network weights."""
+        for idx, actor in enumerate(self.actors):
+            torch.save(actor.state_dict(), f'{filename_prefix}_actor_{idx}.pth')
+        for idx, critic in enumerate(self.critics):
+            torch.save(critic.state_dict(), f'{filename_prefix}_critic_{idx}.pth')
+        for idx, actor_target in enumerate(self.actors_target):
+            torch.save(actor_target.state_dict(), f'{filename_prefix}_actor_target_{idx}.pth')
+        for idx, critic_target in enumerate(self.critics_target):
+            torch.save(critic_target.state_dict(), f'{filename_prefix}_critic_target_{idx}.pth')
+
+    def load_weights(self, filename_prefix):
+        """Load all network weights."""
+        for idx, actor in enumerate(self.actors):
+            actor.load_state_dict(torch.load(f'{filename_prefix}_actor_{idx}.pth'))
+        for idx, critic in enumerate(self.critics):
+            critic.load_state_dict(torch.load(f'{filename_prefix}_critic_{idx}.pth'))
+        for idx, actor_target in enumerate(self.actors_target):
+            actor_target.load_state_dict(torch.load(f'{filename_prefix}_actor_target_{idx}.pth'))
+        for idx, critic_target in enumerate(self.critics_target):
+            critic_target.load_state_dict(torch.load(f'{filename_prefix}_critic_target_{idx}.pth'))
 
 class Actor(nn.Module):
     """Actor (Policy) Model."""

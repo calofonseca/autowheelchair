@@ -24,25 +24,20 @@ if __name__ == '__main__':
 
     states = env.observation_space.shape
     actions = env.action_space.n
-
-    print(env.observation_space.shape)
-    print(env.observation_space)
-
-    print(env.action_space.n)
-    print(env.action_space)
    
     model = RLAgent(int(num_wheelchairs), int(38/2), int(4), critic_units=[512, 256, 128], 
                     actor_units=[256, 128, 64], lr_actor=0.0006343946342268605, lr_critic=0.0009067117952187151, 
                     gamma=0.9773507798877807, sigma=0.2264587893937525)
 
     if globals.load:
-        raise NotImplementedError("Not implemented yet")
+        model.load_weights(globals.load_file)
 
     if globals.train == 1:
         env.task = 'train'
         model.fit(env, total_steps = globals.nsteps)
         if globals.save:
-            raise NotImplementedError("Could not save weights")
+            model.save_weights(globals.save_file)
+            print("Weights Saved Successfully")
     elif globals.train == 2:
         env.reset_counters()
         max_acc = 0
@@ -55,8 +50,7 @@ if __name__ == '__main__':
             env.reset_counters()
             env.task = 'test'
             print('\n', 'Test number:', i)
-            raise NotImplementedError("Not implemented yet the test")
-            #scores = dqn.test(env, nb_episodes=globals.test_episodes, visualize=False)
+            scores = model.test(env, total_episodes=globals.test_episodes)
             acc = env.success_episodes / env.total_episodes
             print('Accurancy:', acc, '/', globals.acc_thresh)
             print('Forward movements', env.forward_steps / env.total_steps, '/', globals.forward_movement_thresh)
@@ -71,7 +65,7 @@ if __name__ == '__main__':
     if globals.test:
         env.reset_counters()
         env.task = 'test'
-        scores = model.test(env, nb_episodes=globals.test_episodes, visualize=False)
+        scores = model.test(env, total_episodes=globals.test_episodes)
         env.success_episodes / env.total_episodes
         print('Accurancy:', env.success_episodes / env.total_episodes, '/', globals.acc_thresh)
         print('Forward movements', env.forward_steps / env.total_steps, '/', globals.forward_movement_thresh)
