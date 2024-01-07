@@ -6,22 +6,25 @@ class BaseClass:
     def fit(self, env, total_steps):
         step_count = 0
         end_reached=False
+        step2 =0
         while step_count < total_steps:
             print("RESETED")
             obs = env.reset()
             while True:
-                action, action2 = self.predict(obs)
+                action, action2 = self.predict(obs, step2)
                 next_obs, reward, done, _ = env.step(action, action2)
                 print(f"STEP:{step_count} Reward:{reward}")
                 self.update(obs, [action, action2], reward, next_obs, done)
                 obs = next_obs
                 step_count += 1
+                step2 +=1
                 if env.end_reached and env.end_reached2:
                     end_reached=True
                 # Update epsilon only every 200 steps
-                if step_count % 100 == 0:
+                if step_count % 1000== 0:
                     self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
+                    step2=0
                     print("BREAKED")
                     break
 
@@ -59,6 +62,6 @@ class BaseClass:
         # Predict the action
         raise NotImplementedError("This method should be overridden by the model extending this base class")
     
-    def update_epsilon(self):  # Call this method at the end of each episode if you want epsilon to decay
+    def update_epsilon(self, step_count):  # Call this method at the end of each episode if you want epsilon to decay
         # Predict the action
         raise NotImplementedError("This method should be overridden by the model extending this base class")

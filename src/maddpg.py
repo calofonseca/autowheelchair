@@ -22,7 +22,7 @@ except ImportError:
 
 class MADDPG(RL):
     def __init__(self, num_agents, agent_observation_size, agent_action_size, actor_units: list = [512, 256, 128, 64, 32], critic_units: list = [1024, 512, 256, 128, 64, 32],
-                 buffer_size: int = int(1e5), batch_size: int = 128, gamma: float = 0.99, sigma=0.24,
+                 buffer_size: int = int(1e5), batch_size: int = 256, gamma: float = 0.90, sigma=0.24,
                  lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.995, tau=1e-3, *args, **kwargs):
 
         super().__init__(**kwargs)
@@ -33,6 +33,11 @@ class MADDPG(RL):
         # Discount factor for the MDP
         self.gamma = gamma
         self.decay_factor = decay_factor
+        self.epsilon_start = 1.0
+        self.epsilon_end = 0.01
+        self.epsilon = 1.0  # Initial value of epsilon
+        self.decay_rate = 4.61e-5#9.21e-5 #4.61×10−6  # The decay rate we calculated earlier
+        self.min_epsilon = 0.05  # Minimum value of epsilon
 
         # Replay buffer and batch size
         self.replay_buffer = ReplayBuffer1(capacity=buffer_size, num_agents=self.num_agents)
@@ -76,7 +81,6 @@ class MADDPG(RL):
         self.critics_optimizer = [torch.optim.Adam(self.critics[i].parameters(), lr=lr_critic) for i in
                                   range(self.num_agents)]
 
-        self.epsilon = 1  # for epsilon-greedy action selection
         self.scaler = GradScaler()
         self.exploration_done = False
 
@@ -122,8 +126,6 @@ class MADDPG(RL):
                 zip(self.actors, self.critics, self.actors_target, self.critics_target, self.actors_optimizer,
                     self.critics_optimizer)):
 
-
-
             with autocast():
                 # Update critic
                 Q_expected = critic(obs_full, action_full)
@@ -134,6 +136,7 @@ class MADDPG(RL):
                 critic_loss = F.mse_loss(Q_expected, Q_targets.detach())
 
             self.scaler.scale(critic_loss).backward()
+            torch.nn.utils.clip_grad_norm_(critic.parameters(), max_norm=1)
             self.scaler.step(critic_optim)
             critic_optim.zero_grad()
             self.scaler.update()
@@ -145,10 +148,11 @@ class MADDPG(RL):
                 actor_loss = -critic(obs_full, predicted_actions_full).mean()
 
             self.scaler.scale(actor_loss).backward()
+            torch.nn.utils.clip_grad_norm_(actor.parameters(), max_norm=1)
             self.scaler.step(actor_optim)
             actor_optim.zero_grad()
             self.scaler.update()
-
+            
             # Update target networks
             self.soft_update(critic, critic_target, self.tau)
             self.soft_update(actor, actor_target, self.tau)
@@ -163,13 +167,38 @@ class MADDPG(RL):
             encoded_observations = [self.get_encoded_observations(i, obs) for i, obs in enumerate(observations)]
             actions_probs = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
                      for actor, obs in zip(self.actors, encoded_observations)]
+            print("Actions Probs")
+            print (actions_probs)
             r = [self.one_hot_decode(action_prob) for action_prob in actions_probs]
+            print("ACTIONS DETERMINISTIC")
+            print(r)
             return r
 
-    def get_exploration_prediction(self, states: List[List[float]]) -> List[float]:
+    def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
+        #if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
+        #    print(f"RANDOM: {self.epsilon}")
+        #    return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
         if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
-            print("RANDOM")
-            return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
+            print(f"RANDOM: {self.epsilon}, {step}")
+            # Adjusting the behavior based on the step
+            if step < 50:
+                # More likely to output 1
+                return [1 if np.random.rand() < 0.95 else np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
+            elif 50 <= step < 70:
+                # Outputs 3
+                retu = [0,0]
+                for i in range(self.num_agents):
+                    r = np.random.rand()
+                    if r < 0.55:
+                        retu[i]= 3
+                    elif r >= 0.55 and r < 0.99:
+                        retu[i]= 1
+                    else:
+                        retu[i]= np.random.choice(range(self.agent_action_size)) 
+                return retu
+            elif step >= 70:
+                # After step 500, more likely to output 1 again
+                return [1 if np.random.rand() < 0.99 else np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
         else:
             print("DETERMINISTIC")
             return self.get_deterministic_actions(states)
@@ -178,14 +207,21 @@ class MADDPG(RL):
         if end_reached:
             self.epsilon = max(self.epsilon * self.decay_factor, 0.05)  
         else:
-            self.epsilon = max(self.epsilon * self.decay_factor, 0.20)
+            self.epsilon = max(self.epsilon * self.decay_factor, 0.25)
 
-    def predict(self, observations, deterministic=False):
+    #def update_epsilon(self, step):  # Pass the current step or episode number
+    #    # Calculate the new value of epsilon using exponential decay
+    #    new_epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * np.exp(-self.decay_rate * step)
+   # 
+        # Ensure that epsilon does not fall below the minimum value
+    #    self.epsilon = max(new_epsilon, self.min_epsilon)
+
+    def predict(self, observations, step, deterministic=False):
         actions_return = None
         if deterministic:
             actions_return = self.get_deterministic_actions(observations)
         else:
-            actions_return = self.get_exploration_prediction(observations)
+            actions_return = self.get_exploration_prediction(observations, step)
 
         return actions_return
 
@@ -269,7 +305,8 @@ class Actor(nn.Module):
             x = F.relu(fc(x))
 
         x = self.fc_layers[-1](x)
-        return F.softmax(x, dim=0)
+        r = F.softmax(x, dim=0)
+        return r
 
         return F.softmax(self.fc_layers[-1](x), dim=1)  # Softmax for probability distribution
 

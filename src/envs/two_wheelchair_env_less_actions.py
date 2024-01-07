@@ -18,9 +18,11 @@ class TwoWheelChairEnvLessActions(Env):
 
     def __init__(self):
         #current data
+        self.initial_distance1 = None
+        self.initial_distance2 = None
         self.episode = 0
         self.action_n = 0
-        self.max_episodes = 300
+        self.max_episodes = 500
         self.front_split = 9
         self.back_split = 3
         self.split = self.front_split + self.back_split
@@ -156,26 +158,14 @@ class TwoWheelChairEnvLessActions(Env):
             self.end_reached2 = self.finished2
 
         if self.collisions:
-            #reward = -400
-            reward1 -= 500
-            reward2 -= 500
+            reward = -400
             print("COLIDED")
             done = True
             self.data['end_condition'][-1] = 'collision'
-        elif self.end_reached or self.end_reached2:
-            if self.end_reached and self.end_reached2:
-                #reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
-                reward1 += 800
-                reward2 += 800
-                print("END REACHED")
-                done = True
-                self.data['end_condition'][-1] = 'finished'
-            elif self.end_reached and not self.end_reached2:
-                reward1 += 500
-                reward2 -= 100
-            elif not self.end_reached and self.end_reached2:
-                reward2 += 500
-                reward1 -= 100
+        elif self.end_reached and self.end_reached2:
+            reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
+            done = True
+            self.data['end_condition'][-1] = 'finished'
 
             
         elif self.episode > self.max_episodes:
@@ -183,23 +173,24 @@ class TwoWheelChairEnvLessActions(Env):
             print("EPISODES GREATER THAN")
             done = True
             self.data['end_condition'][-1] = 'time out'
+            print("GREATERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
         else:  
             reward = 0
 
         if enter_end: reward += 100
         if exit_end: reward -= 100
 
-        reward += self.action_reward(a1, 1)
-        reward += self.action_reward(a2, 2)
+        reward1 += self.action_reward(a1, 1)
+        reward2 += self.action_reward(a2, 2)
         
         if len(self.action_history) > 0:
             last_action = self.action_history[-1]
             if (last_action == 2 and a1 == 3) or (last_action == 3 and a1 == 2):
-                reward -= (100 / self.max_episodes) * 5
+                reward1 -= (300 / self.max_episodes) * 5
 
             last_action = self.action_history2[-1]
             if (last_action == 2 and a2 == 3) or (last_action == 3 and a2 == 2):
-                reward -= (100 / self.max_episodes) * 5
+                reward2 -= (300 / self.max_episodes) * 5
             
 
         if a1 == 2: self.rotation_counter += 1 
@@ -214,10 +205,10 @@ class TwoWheelChairEnvLessActions(Env):
                 self.consecutive_rotations += direction
                 self.rotations = rot
                 #reward -= 120 * abs(self.consecutive_rotations)
-                reward1 -= 120 * abs(self.consecutive_rotations)
+                reward1 -= 75 * abs(self.consecutive_rotations)
 
-        if a2 == 3 or a2 == 5: self.rotation_counter2 += 1 
-        elif a2 == 4 or a2 == 6: self.rotation_counter2 -= 1
+        if a2 == 2: self.rotation_counter2 += 1 
+        elif a2 == 3: self.rotation_counter2 -= 1
         if self.rotation_counter2 % 30 == 0:
             rot = self.rotation_counter2 / 30
             if self.rotations2 != rot:
@@ -227,33 +218,35 @@ class TwoWheelChairEnvLessActions(Env):
                         self.consecutive_rotations2 = 0
                 self.consecutive_rotations2 += direction
                 self.rotations2 = rot
-                #reward -= 120 * abs(self.consecutive_rotations2)
-                reward2 -= 120 * abs(self.consecutive_rotations)
+        #        reward -= 120 * abs(self.consecutive_rotations2)
+                reward2 -= 75 * abs(self.consecutive_rotations)
+
         
         reward1 += (self.lidar_sample[0] - 0.5) * (300 / self.max_episodes)
-        if self.lidar_sample[0] > 0.5: reward1 += ((self.lidar_sample[1] - 0.5) + (self.lidar_sample[2] - 0.5)) * (800/ self.max_episodes)
+        if self.lidar_sample[0] > 0.5: reward1 += ((self.lidar_sample[1] - 0.5) + (self.lidar_sample[2] - 0.5)) * (300/ self.max_episodes)
 
         reward2 += (self.lidar_sample2[0] - 0.5) * (300 / self.max_episodes)
-        if self.lidar_sample2[0] > 0.5: reward2 += ((self.lidar_sample2[1] - 0.5) + (self.lidar_sample2[2] - 0.5)) * (800 / self.max_episodes)
+        if self.lidar_sample2[0] > 0.5: reward2 += ((self.lidar_sample2[1] - 0.5) + (self.lidar_sample2[2] - 0.5)) * (300 / self.max_episodes)
 
-
+        #reward = self.apply_penalty_if_repetitive(self.action_history,a1,reward)
+        #reward = self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
 
         # Assuming similar logic as above, modifying for side distances
-        side_threshold = 0.5  # Define a threshold for side distances
-        for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
-            if self.lidar_sample[i] < side_threshold:
-                penalty = (side_threshold - self.lidar_sample[i]) * (300 / self.max_episodes)
-                reward1 -= penalty
+        #side_threshold = 0.5  # Define a threshold for side distances
+        #for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
+        #    if self.lidar_sample[i] < side_threshold:
+        #        penalty = (side_threshold - self.lidar_sample[i]) * (1800 / self.max_episodes)
+        #        reward -= penalty
 
         # Repeat for lidar_sample2 if necessary
-        for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
-            if self.lidar_sample2[i] < side_threshold:
-                penalty = (side_threshold - self.lidar_sample2[i]) * (300 / self.max_episodes)
-                reward2 -= penalty
+        #for i in [0, 1, 2]:  # Assuming indexes 1 and 2 correspond to side lidar readings
+        #    if self.lidar_sample2[i] < side_threshold:
+        #        penalty = (side_threshold - self.lidar_sample2[i]) * (1800 / self.max_episodes)
+        #        reward -= penalty
 
 
         if max([self.lidar_sample[5], self.lidar_sample[6], self.lidar_sample2[5], self.lidar_sample2[6]]) <= 0.4 and abs(self.lidar_sample[5] - self.lidar_sample2[5]) <= 0.05 and abs(self.lidar_sample[6] - self.lidar_sample2[6]) <= 0.05:
-            reward += 20
+            reward += 10
             self.data['adjacency'][-1].append(1)
             self.adj_steps += 1
         else: self.data['adjacency'][-1].append(0)
@@ -275,11 +268,6 @@ class TwoWheelChairEnvLessActions(Env):
         self.data['rewards'][-1].append(reward)
         self.data['positions'][-1].append((self.position, self.position2))
 
-        print("Rewards")
-        print(reward)
-        print(reward1)
-        print(reward2)
-
                 # Modify the return statement to accommodate both single and multi-agent scenarios
         if action2 != -1:  # Multi-agent setting
             # Split the state for each agent based on your state formation
@@ -299,9 +287,9 @@ class TwoWheelChairEnvLessActions(Env):
             last_five_actions = action_history[-4:] + [a_current]
 
             # Check if all the last 5 actions are the same and not 0
-            if len(set(last_five_actions)) == 1 and last_five_actions[0] != 0:
+            if len(set(last_five_actions)) == 1 and (last_five_actions[0] != 0) and last_five_actions[0]!=1 :
                 # Apply the penalty
-                reward -= (100 / self.max_episodes) * 5
+                reward -= (2000 / self.max_episodes) * 5
 
         # Append the current action to the history for future checks
         action_history.append(a_current)
@@ -310,6 +298,67 @@ class TwoWheelChairEnvLessActions(Env):
         return reward
 
     def action_reward(self, action, chair):
+        #base_reward = 300 / self.max_episodes
+        #close_threshold = 0.45  # Lidar reading considered close to the wall
+
+        #def exp_penalty(lidar_value):
+        #    # Increased penalty as the robot gets closer to the wall
+        #    return (300 / self.max_episodes) * 2 * (1 / max(lidar_value, 0.01))
+
+        #def exp_reward(lidar_value):
+        #    # Reward increases as the robot gets closer to the wall and takes correct action
+        #    return (300 / self.max_episodes) * (1 / (0.45 - lidar_value + 0.01))
+
+        # Terminal state rewards or penalties
+        #if (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2):
+        #    if action == 0: return base_reward  # Reached the end successfully
+        #    else: return -base_reward  # Reached the end with wrong action
+
+        #lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
+        #front_lidar = lidar[0]
+        # Non-terminal state rewards or penalties
+        #if action == 1:  # Forward
+        #    # Penalize heavily if heading straight into a wall
+        #    if front_lidar < close_threshold:
+        #        reward = -exp_penalty(front_lidar) * 2  # Increased penalty for moving forward towards a wall
+        #        print(f"CASE1 {reward}")
+        #    else:
+        #        reward = base_reward  # Normal reward for moving forward safely
+        #elif action == 0:  # Stop
+        #    reward = -base_reward*10  # Penalize stopping unnecessarily
+        #elif action == 2 or action == 3:  # Turning left or right
+        #    front_lidar = lidar[0]  # Directly in front
+        #    left_lidar = lidar[1]   # Front-left
+        #    right_lidar = lidar[2]  # Front-right
+
+        #    # Find which direction is closest to a wall
+        #    closest_wall_distance = min(front_lidar, left_lidar, right_lidar)
+        #    closest_wall_index = [front_lidar, left_lidar, right_lidar].index(closest_wall_distance)
+
+        #    # Determine the reward or penalty based on action and closest wall
+        #    if closest_wall_distance < close_threshold:
+        #        # If the robot is close to a wall
+        #        if closest_wall_index == 1 and action == 3:  # Close to left wall and turning right
+        #            reward = exp_reward(left_lidar)
+        #            print(f"CASE2 {reward}")
+        #       elif closest_wall_index == 2 and action == 2:  # Close to right wall and turning left
+        #            reward = exp_reward(right_lidar)
+        #            print(f"CASE3 {reward}")
+        #        else:
+        #            reward = -exp_penalty(closest_wall_distance)  # Penalize for turning towards or not away
+        #            print(f"CASE4 {reward}")
+        #    else:
+        #        # If not close to any wall, penalize unnecessary turns
+        #        reward = -exp_penalty(closest_wall_distance)  # Penalize for unnecessary turning
+        #        print(f"CASE5 {reward}")
+
+        # Continue with the rest of your reward function...
+
+
+
+
+        #return reward
+
         if (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2):
             if action == 0: return 300 / self.max_episodes
             else: return -300 / self.max_episodes
@@ -502,12 +551,14 @@ class TwoWheelChairEnvLessActions(Env):
     def check_finished(self, data):
         values = [x for x in data.ranges if not np.isnan(x)]
         if len(values) > 0:
+            self.distance1= min(values)
             self.finished = min(values) < self.min_distance
 
 
     def check_finished2(self, data):
         values = [x for x in data.ranges if not np.isnan(x)]
         if len(values) > 0:
+            self.distance2= min(values)
             self.finished2 = min(values) < self.min_distance
                 
     def update_position(self, data):

@@ -4,13 +4,13 @@
 path_to_catkin = ''
 
 #load wheights from file:
-load = True
+load = False
 load_file = 'twowc_train_straigh_less_actions'
 load_file = path_to_catkin + 'src/autowheelchair/src/weights/' + load_file
 
 #save wheights to file:
 save = True
-save_file = 'twowc_train_straigh_less_actions'
+save_file = 'twowc_train_curve_less_actions'
 save_file = path_to_catkin + 'src/autowheelchair/src/weights/' + save_file
 
 #save data to file:
@@ -27,7 +27,7 @@ use_three_wc = False
 #dont train (0), train by number of steps (1), train by threshold (2)
 train = 1
 #if train by number of steps
-nsteps = 50000
+nsteps = 1000000
 #if train by threshold
 acc_thresh = 0.8
 forward_movement_thresh = 0
