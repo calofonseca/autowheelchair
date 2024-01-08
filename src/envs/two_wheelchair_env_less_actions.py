@@ -22,7 +22,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.initial_distance2 = None
         self.episode = 0
         self.action_n = 0
-        self.max_episodes = 500
+        self.max_episodes = 300
         self.front_split = 9
         self.back_split = 3
         self.split = self.front_split + self.back_split
@@ -298,6 +298,8 @@ class TwoWheelChairEnvLessActions(Env):
         return reward
 
     def action_reward(self, action, chair):
+
+        #MORE OPTIMIZED REWARD
         #base_reward = 300 / self.max_episodes
         #close_threshold = 0.45  # Lidar reading considered close to the wall
 
@@ -351,9 +353,6 @@ class TwoWheelChairEnvLessActions(Env):
         #        # If not close to any wall, penalize unnecessary turns
         #        reward = -exp_penalty(closest_wall_distance)  # Penalize for unnecessary turning
         #        print(f"CASE5 {reward}")
-
-        # Continue with the rest of your reward function...
-
 
 
 

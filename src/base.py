@@ -21,7 +21,7 @@ class BaseClass:
                 if env.end_reached and env.end_reached2:
                     end_reached=True
                 # Update epsilon only every 200 steps
-                if step_count % 1000== 0:
+                if step_count % 100== 0:
                     self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
                     step2=0
@@ -40,7 +40,7 @@ class BaseClass:
             episode_reward = 0
 
             while True:
-                action = self.predict(obs, deterministic=True)
+                action = self.predict(obs, 0, deterministic=True)
                 next_obs, reward, done, _ = env.step(*action)
                 obs = next_obs
                 episode_reward += reward[0]

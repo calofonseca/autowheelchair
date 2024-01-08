@@ -175,30 +175,9 @@ class MADDPG(RL):
             return r
 
     def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
-        #if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
-        #    print(f"RANDOM: {self.epsilon}")
-        #    return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
         if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
-            print(f"RANDOM: {self.epsilon}, {step}")
-            # Adjusting the behavior based on the step
-            if step < 50:
-                # More likely to output 1
-                return [1 if np.random.rand() < 0.95 else np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
-            elif 50 <= step < 70:
-                # Outputs 3
-                retu = [0,0]
-                for i in range(self.num_agents):
-                    r = np.random.rand()
-                    if r < 0.55:
-                        retu[i]= 3
-                    elif r >= 0.55 and r < 0.99:
-                        retu[i]= 1
-                    else:
-                        retu[i]= np.random.choice(range(self.agent_action_size)) 
-                return retu
-            elif step >= 70:
-                # After step 500, more likely to output 1 again
-                return [1 if np.random.rand() < 0.99 else np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
+            print(f"RANDOM: {self.epsilon}")
+            return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
         else:
             print("DETERMINISTIC")
             return self.get_deterministic_actions(states)

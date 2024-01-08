@@ -60,6 +60,7 @@ if __name__ == '__main__':
                 raise NotImplementedError("Could not save weights")
                 if globals.save_data: env.dump_data(globals.data_file)
             i+=1
+            
 
     if globals.test:
         env.reset_counters()
