@@ -266,12 +266,18 @@ class TwoWheelChairEnvLessActions(Env):
     def optimized_reward_function(self, action, chair):
         # Constants
         base_reward = 300 / self.max_episodes
-        penalty_scale = 2  # Adjust to scale the penalty with distance
+        penalty_scale = 4  # Adjust to scale the penalty with distance
+        adjacency_reward_base = 3  # Base reward for maintaining adjacency
 
         # Helper functions
         def penalty_for_proximity(distance):
             """Calculate penalty based on proximity to the wall, with steeper penalty as distance decreases."""
             return (300 / self.max_episodes) * penalty_scale * (1 / max(distance, 0.01))**2
+        
+        def calculate_adjacency_reward(difference):
+            """Calculate dynamic reward/penalty for adjacency based on difference in lidar readings."""
+            # Use an exponential function to calculate reward/penalty based on the difference in readings
+            return -adjacency_reward_base * (difference ** 2)
 
         # Check terminal state
         end_condition = (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2)
@@ -281,9 +287,24 @@ class TwoWheelChairEnvLessActions(Env):
 
         # Get lidar samples
         lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
-    
+        other_lidar = self.lidar_sample2 if chair == 1 else self.lidar_sample
+
         # Initialize reward
         reward = 0
+
+        # Determine adjacency status
+        # Check for actual adjacency without immediate obstacles
+        adjacency_status = all(lidar_sample != -1 for lidar_sample in [lidar[5], lidar[6], other_lidar[5], other_lidar[6]])
+        difference_5 = abs(lidar[5] - other_lidar[5])
+        difference_6 = abs(lidar[6] - other_lidar[6])
+        within_threshold = difference_5 <= 0.08 and difference_6 <= 0.08
+
+        # Determine if turning towards the other robot within the threshold
+        turning_towards_other_robot = False
+        if chair == 1 and action == 3:  # Chair 1 turning right towards Chair 2
+            turning_towards_other_robot = True
+        elif chair == 2 and action == 2:  # Chair 2 turning left towards Chair 1
+            turning_towards_other_robot = True
 
         # For forward action, consider specified lidar samples
         if action == 1:
@@ -294,6 +315,8 @@ class TwoWheelChairEnvLessActions(Env):
         
             # Use the minimum distance from these samples to determine how close the agent is to an obstacle
             min_distance_forward = min(front_slightly_left, front, front_slightly_right)
+            print("MIN DISTYANCE FRONT")
+            print(min_distance_forward)
             if min_distance_forward < 0.45:  # Close to a wall
                 reward = -penalty_for_proximity(min_distance_forward)
             else:
@@ -303,30 +326,36 @@ class TwoWheelChairEnvLessActions(Env):
         elif action == 0:
             reward = -base_reward  # Modify to make less severe if needed
 
-        # Turning actions
-        elif action in [2, 3]:
-            # Left turning action
-            if action == 2:
-                # Consider samples [15] to [18] for left side
-                left_side_distances = [lidar[i] for i in range(15, 19)]
-            # Right turning action
+        # Adjust turning actions with proper adjacency consideration for both chairs
+        if action in [2, 3]:  # Turning actions
+            if turning_towards_other_robot:
+                # Apply reward for maintaining formation when turning towards each other
+                reward += calculate_adjacency_reward(difference_5+difference_6)
             else:
-                # Consider samples [8] to [11] for right side
-                right_side_distances = [lidar[i] for i in range(8, 12)]
+                # Determine minimum distance to obstacle for the direction of turn
+                if action == 2:  # Left turn
+                    distances = [lidar[i] for i in range(15, 19)]
+                else:  # Right turn
+                    distances = [lidar[i] for i in range(8, 12)]
+                min_distance = min(distances)
 
-            # Determine direction and penalize or reward based on proximity and action
-            if action == 2:  # Turning left
-                min_distance_left = min(left_side_distances)
-                if min_distance_left < 0.45:
-                    reward = -penalty_for_proximity(min_distance_left)
+                # Apply standard penalty for proximity if not turning towards the other robot or not within threshold
+                if min_distance < 0.45:
+                    reward = -penalty_for_proximity(min_distance)
                 else:
                     reward = base_reward
-            elif action == 3:  # Turning right
-                min_distance_right = min(right_side_distances)
-                if min_distance_right < 0.45:
-                    reward = -penalty_for_proximity(min_distance_right)
-                else:
-                    reward = base_reward
+        else:
+            # Adjust reward for adjacency outside of turning logic, if applicable
+            if adjacency_status and not turning_towards_other_robot:
+                # Apply dynamic reward/penalty for maintaining adjacency
+                reward += calculate_adjacency_reward(difference_5+difference_6)
+
+        # Track adjacency in data for analysis
+        if adjacency_status and within_threshold:
+            self.data['adjacency'][-1].append(1)
+            self.adj_steps += 1
+        else:
+            self.data['adjacency'][-1].append(0)
 
         print(f"Reward optimized {reward}")
         return reward
@@ -446,17 +475,14 @@ class TwoWheelChairEnvLessActions(Env):
 
         for i in range (len(self.lidar_sample)): self.lidar_sample[i] = min(self.lidar_sample[i], 2)
 
-        print(len(data.ranges))
+        #print(len(data.ranges))
         print("ROBOT 1")
         # Calculate indices for #5 and #6 based on your setup
-        start_index = math.ceil(len(data.ranges) / 4) - 1 - (each // 2*3) #18
-        end_index = math.ceil(len(data.ranges) / 4) - 1 + (each // 2*3) #26
-        print(start_index)
-        print(end_index)
+        start_index = math.ceil(len(data.ranges) / 4) - 1 - (each // 2*4) 
+        end_index = math.ceil(len(data.ranges) / 4) - 1 + (each // 2*4) 
 
         front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 1)
-        print(f"Object front side distance: {front_distance}, back side distance: {back_distance}")
-        print(f"Detected at indices: front edge - {front_edge_index}, back edge - {back_edge_index}")
+        print(f"1 - Object front side distance: {front_distance}, back side distance: {back_distance}")
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 
@@ -509,14 +535,11 @@ class TwoWheelChairEnvLessActions(Env):
         
         print("ROBOT 2")
         # Calculate indices for #5 and #6 based on your setup
-        end_index = math.ceil(len(data.ranges) * (3/4)) - 1 + (each // 2*3) #72
-        start_index = math.ceil(len(data.ranges) * (3/4)) - 1 - (each // 2*3) #64
-        print(start_index)
-        print(end_index)
+        end_index = math.ceil(len(data.ranges) * (3/4)) - 1 + (each // 2*4) 
+        start_index = math.ceil(len(data.ranges) * (3/4)) - 1 - (each // 2*4)
 
         front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 2)
-        print(f"Object front side distance: {front_distance}, back side distance: {back_distance}")
-        print(f"Detected at indices: front edge - {front_edge_index}, back edge - {back_edge_index}")
+        print(f"2 - Object front side distance: {front_distance}, back side distance: {back_distance}")
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 
@@ -543,6 +566,11 @@ class TwoWheelChairEnvLessActions(Env):
             if data_ranges[i] > min_distance * 1.4:  # Same arbitrary factor as above
                 back_edge_index = i - 1
                 break
+                
+        # Verification step: Check if no significant increase is detected
+        if front_edge_index == back_edge_index == closest_point_index:
+            # No significant increase detected, return -1 for both distances and indices
+            return -1, -1, -1, -1
 
         # Return distances at front and back edges
         front_distance = data_ranges[front_edge_index]

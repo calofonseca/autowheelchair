@@ -12,6 +12,7 @@ class BaseClass:
             obs = env.reset()
             while True:
                 action, action2 = self.predict(obs, step2)
+                print(f"ACTION1: {action2} ACTION2: {action2}")
                 next_obs, reward, done, _ = env.step(action, action2)
                 print(f"STEP:{step_count} Reward:{reward}")
                 self.update(obs, [action, action2], reward, next_obs, done)
