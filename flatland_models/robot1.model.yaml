@@ -84,4 +84,4 @@ plugins:
 
   - type: Bumper
     name: bumper
-    update_rate: 10
+    update_rate: 7

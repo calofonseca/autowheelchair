@@ -158,13 +158,13 @@ class TwoWheelChairEnvLessActions(Env):
             self.end_reached2 = self.finished2
 
         if self.collisions:
-            #reward = -400
+            reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
             self.data['end_condition'][-1] = 'collision'
         elif self.end_reached and self.end_reached2:
-            #reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
+            reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
             #Changed for reward based on proximity of target
             done = True
             self.data['end_condition'][-1] = 'finished'
@@ -174,7 +174,7 @@ class TwoWheelChairEnvLessActions(Env):
             reward = -(600 + self.forward_reward) 
             print("EPISODES GREATER THAN")
             done = True
-            self.data['end_condition'][-1] = 'time out'
+            #self.data['end_condition'][-1] = 'time out'
             print("GREATERRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR")
         else:  
             reward = 0
@@ -188,20 +188,12 @@ class TwoWheelChairEnvLessActions(Env):
         reward2 += self.optimized_reward_function(a2, 2)
         
         #Penalizing repetitive Changes in direction #Might disapeer
-        reward1 += self.apply_penalty_direction_changes(self.action_history,a1)
-        reward2 += self.apply_penalty_direction_changes(self.action_history2,a2)   
+        #reward1 += self.apply_penalty_direction_changes(self.action_history,a1)
+        #reward2 += self.apply_penalty_direction_changes(self.action_history2,a2)   
 
         #Penalizing Repetitive Actions #Might disapeer
-        reward1 = self.apply_penalty_if_repetitive(self.action_history,a1,reward)
-        reward2 = self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
-
-
-        #Rewarding Maintaining a Specific Formation (TO IMPROVE)
-        if max([self.lidar_sample[5], self.lidar_sample[6], self.lidar_sample2[5], self.lidar_sample2[6]]) <= 0.4 and abs(self.lidar_sample[5] - self.lidar_sample2[5]) <= 0.05 and abs(self.lidar_sample[6] - self.lidar_sample2[6]) <= 0.05:
-            reward += 10
-            self.data['adjacency'][-1].append(1)
-            self.adj_steps += 1
-        else: self.data['adjacency'][-1].append(0)
+        reward1 += self.apply_penalty_if_repetitive(self.action_history,a1,reward)
+        reward2 += self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
 
         self.total_steps += 1
         if a1 == 1:self.forward_steps += 0.5
@@ -245,6 +237,10 @@ class TwoWheelChairEnvLessActions(Env):
             if len(set(last_five_actions)) == 1 and (last_five_actions[0] != 0) and last_five_actions[0]!=1 :
                 # Apply the penalty
                 reward -= (2000 / self.max_episodes) * 5
+                    # Check if among last 5, 4 were either 2 or 3
+            elif last_five_actions.count(2) == 4 or last_five_actions.count(3) == 4:
+                # Apply the penalty
+                reward -= (2000 / self.max_episodes) * 4
 
         # Append the current action to the history for future checks
         action_history.append(a_current)
@@ -315,16 +311,14 @@ class TwoWheelChairEnvLessActions(Env):
         
             # Use the minimum distance from these samples to determine how close the agent is to an obstacle
             min_distance_forward = min(front_slightly_left, front, front_slightly_right)
-            print("MIN DISTYANCE FRONT")
-            print(min_distance_forward)
-            if min_distance_forward < 0.45:  # Close to a wall
+            if min_distance_forward < 0.35:  # Close to a wall
                 reward = -penalty_for_proximity(min_distance_forward)
             else:
                 reward = base_reward
 
         # Stop action
         elif action == 0:
-            reward = -base_reward  # Modify to make less severe if needed
+            reward = -base_reward*5  # Modify to make less severe if needed
 
         # Adjust turning actions with proper adjacency consideration for both chairs
         if action in [2, 3]:  # Turning actions
@@ -340,7 +334,7 @@ class TwoWheelChairEnvLessActions(Env):
                 min_distance = min(distances)
 
                 # Apply standard penalty for proximity if not turning towards the other robot or not within threshold
-                if min_distance < 0.45:
+                if min_distance < 0.35:
                     reward = -penalty_for_proximity(min_distance)
                 else:
                     reward = base_reward
@@ -357,7 +351,6 @@ class TwoWheelChairEnvLessActions(Env):
         else:
             self.data['adjacency'][-1].append(0)
 
-        print(f"Reward optimized {reward}")
         return reward
 
 
@@ -476,13 +469,13 @@ class TwoWheelChairEnvLessActions(Env):
         for i in range (len(self.lidar_sample)): self.lidar_sample[i] = min(self.lidar_sample[i], 2)
 
         #print(len(data.ranges))
-        print("ROBOT 1")
+        #print("ROBOT 1")
         # Calculate indices for #5 and #6 based on your setup
         start_index = math.ceil(len(data.ranges) / 4) - 1 - (each // 2*4) 
         end_index = math.ceil(len(data.ranges) / 4) - 1 + (each // 2*4) 
 
         front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 1)
-        print(f"1 - Object front side distance: {front_distance}, back side distance: {back_distance}")
+        #print(f"1 - Object front side distance: {front_distance}, back side distance: {back_distance}")
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 
@@ -533,13 +526,13 @@ class TwoWheelChairEnvLessActions(Env):
 
         for i in range (len(self.lidar_sample2)): self.lidar_sample2[i] = min(self.lidar_sample2[i], 2)
         
-        print("ROBOT 2")
+        #print("ROBOT 2")
         # Calculate indices for #5 and #6 based on your setup
         end_index = math.ceil(len(data.ranges) * (3/4)) - 1 + (each // 2*4) 
         start_index = math.ceil(len(data.ranges) * (3/4)) - 1 - (each // 2*4)
 
         front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 2)
-        print(f"2 - Object front side distance: {front_distance}, back side distance: {back_distance}")
+        #print(f"2 - Object front side distance: {front_distance}, back side distance: {back_distance}")
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 

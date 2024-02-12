@@ -27,7 +27,7 @@ use_three_wc = False
 #dont train (0), train by number of steps (1), train by threshold (2)
 train = 1
 #if train by number of steps
-nsteps = 50000
+nsteps = 10000
 #if train by threshold
 acc_thresh = 0.8
 forward_movement_thresh = 0

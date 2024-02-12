@@ -184,7 +184,7 @@ class MADDPG(RL):
 
     def update_epsilon(self, end_reached):  # Call this method at the end of each episode if you want epsilon to decay
         if end_reached:
-            self.epsilon = max(self.epsilon * self.decay_factor, 0.05)  
+            self.epsilon = max(self.epsilon * self.decay_factor, 0.10)  
         else:
             self.epsilon = max(self.epsilon * self.decay_factor, 0.25)
 
