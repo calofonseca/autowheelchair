@@ -45,8 +45,6 @@ class MADDPG(RL):
 
         # Determine device
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print("ATTENTION HERE")
-        print(self.device)
 
         self.seed = random.randint(0, 100_000_000)
         self.actor_units = actor_units
@@ -177,7 +175,9 @@ class MADDPG(RL):
     def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
         if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
             print(f"RANDOM: {self.epsilon}")
-            return [np.random.choice(range(self.agent_action_size)) for _ in range(self.num_agents)]
+            a1 = np.random.choice(range(self.agent_action_size))
+            a2 = np.random.choice(range(self.agent_action_size))
+            return [a1,a2]
         else:
             print("DETERMINISTIC")
             return self.get_deterministic_actions(states)

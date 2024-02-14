@@ -12,7 +12,8 @@ import numpy as np
 import random
 import pandas as pd 
 from tf.transformations import euler_from_quaternion
-
+import time
+import math
 
 class TwoWheelChairEnvLessActions(Env):
 
@@ -21,8 +22,9 @@ class TwoWheelChairEnvLessActions(Env):
         self.initial_distance1 = None
         self.initial_distance2 = None
         self.episode = 0
-        self.action_n = 0
-        self.max_episodes = 300
+        self.naction1 = 0
+        self.naction2 = 0
+        self.max_episodes = 1000
         self.front_split = 9
         self.back_split = 3
         self.split = self.front_split + self.back_split
@@ -100,8 +102,8 @@ class TwoWheelChairEnvLessActions(Env):
         angular_speed = 1.0471975512 
         self.actions = [(0, 0), 
                         (linear_speed, 0),  
-                        (0, angular_speed), 
-                        (0, -angular_speed)]
+                        (0.1, angular_speed), 
+                        (0.1, -angular_speed)]
                         
         n_actions = (len(self.actions) , len(self.actions))
                         
@@ -117,6 +119,13 @@ class TwoWheelChairEnvLessActions(Env):
 
     def step(self, action, action2=-1):
         
+        while not (self.naction1 == self.episode + 1 and self.naction2 == self.episode + 1):
+            # Optionally, include a small delay to prevent the loop from consuming too much CPU
+            time.sleep(0.1)  
+
+        print("STEPPPPPPING")
+        
+        
         if action2 != -1: #Multi agent aaproach
             a1 = action
             a2 = action2
@@ -131,15 +140,11 @@ class TwoWheelChairEnvLessActions(Env):
         self.change_robot_speed(1, self.actions[a1][0], self.actions[a1][1])
         self.change_robot_speed(2, self.actions[a2][0], self.actions[a2][1])
 
-        self.action_n += 1
-
-        while self.episode == self.action_n: pass
-
         self.state = np.array(self.lidar_sample + self.lidar_sample2)
         
         done = False
         
-        if self.action_n < 4:
+        if self.episode < 4:
             self.collisions = False
             self.finished = False
             self.finished2 = False
@@ -158,7 +163,7 @@ class TwoWheelChairEnvLessActions(Env):
             self.end_reached2 = self.finished2
 
         if self.collisions:
-            reward = -400
+            #reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
@@ -219,9 +224,11 @@ class TwoWheelChairEnvLessActions(Env):
             rewards = [reward + reward1, reward + reward2]  # If shared rewards, otherwise calculate individually
             dones = done  # Both agents likely share the same done flag in your scenario
             infos = [{}, {}]  # Additional info if any, per agent
+            self.episode += 1
             return observations, rewards, dones, infos
         else:  # Single-agent setting
             # For single-agent, return the entire state and single values for reward and done
+            self.episode += 1
             return self.state, reward, done, {}  # Single values as usual
         
 
@@ -236,9 +243,12 @@ class TwoWheelChairEnvLessActions(Env):
             # Check if all the last 5 actions are the same and not 0
             if len(set(last_five_actions)) == 1 and (last_five_actions[0] != 0) and last_five_actions[0]!=1 :
                 # Apply the penalty
-                reward -= (2000 / self.max_episodes) * 5
+                reward -= (6000 / self.max_episodes) * 5
                     # Check if among last 5, 4 were either 2 or 3
             elif last_five_actions.count(2) == 4 or last_five_actions.count(3) == 4:
+                # Apply the penalty
+                reward -= (5000 / self.max_episodes) * 4
+            elif last_five_actions.count(2) == 3 or last_five_actions.count(3) == 3:
                 # Apply the penalty
                 reward -= (2000 / self.max_episodes) * 4
 
@@ -261,18 +271,18 @@ class TwoWheelChairEnvLessActions(Env):
 
     def optimized_reward_function(self, action, chair):
         # Constants
-        base_reward = 300 / self.max_episodes
+        base_reward = 1000 / self.max_episodes
         penalty_scale = 4  # Adjust to scale the penalty with distance
         adjacency_reward_base = 3  # Base reward for maintaining adjacency
+        desired_adjacency_distance = 0.25  # Desired distance between chairs
 
         # Helper functions
         def penalty_for_proximity(distance):
             """Calculate penalty based on proximity to the wall, with steeper penalty as distance decreases."""
             return (300 / self.max_episodes) * penalty_scale * (1 / max(distance, 0.01))**2
-        
+    
         def calculate_adjacency_reward(difference):
             """Calculate dynamic reward/penalty for adjacency based on difference in lidar readings."""
-            # Use an exponential function to calculate reward/penalty based on the difference in readings
             return -adjacency_reward_base * (difference ** 2)
 
         # Check terminal state
@@ -288,12 +298,21 @@ class TwoWheelChairEnvLessActions(Env):
         # Initialize reward
         reward = 0
 
-        # Determine adjacency status
-        # Check for actual adjacency without immediate obstacles
+        # Determine adjacency status with distance check
+        adjacency_distance = lidar[3] if chair == 1 else other_lidar[4]
         adjacency_status = all(lidar_sample != -1 for lidar_sample in [lidar[5], lidar[6], other_lidar[5], other_lidar[6]])
         difference_5 = abs(lidar[5] - other_lidar[5])
         difference_6 = abs(lidar[6] - other_lidar[6])
         within_threshold = difference_5 <= 0.08 and difference_6 <= 0.08
+
+        # Apply penalty if chairs are not at the desired distance when adjacent
+        if adjacency_status and not (desired_adjacency_distance - 0.05 <= adjacency_distance <= desired_adjacency_distance + 0.05):
+            reward -= penalty_for_proximity(abs(adjacency_distance - desired_adjacency_distance))
+
+        # Adjust reward for lidar samples 5 and 6 being close to equal
+        if adjacency_status and within_threshold:
+            reward += base_reward*10  # Modify to make less severe if needed
+
 
         # Determine if turning towards the other robot within the threshold
         turning_towards_other_robot = False
@@ -311,14 +330,14 @@ class TwoWheelChairEnvLessActions(Env):
         
             # Use the minimum distance from these samples to determine how close the agent is to an obstacle
             min_distance_forward = min(front_slightly_left, front, front_slightly_right)
-            if min_distance_forward < 0.35:  # Close to a wall
+            if min_distance_forward < 0.25:  # Close to a wall
                 reward = -penalty_for_proximity(min_distance_forward)
             else:
                 reward = base_reward
 
         # Stop action
         elif action == 0:
-            reward = -base_reward*5  # Modify to make less severe if needed
+            reward = -base_reward*100  # Modify to make less severe if needed
 
         # Adjust turning actions with proper adjacency consideration for both chairs
         if action in [2, 3]:  # Turning actions
@@ -328,13 +347,13 @@ class TwoWheelChairEnvLessActions(Env):
             else:
                 # Determine minimum distance to obstacle for the direction of turn
                 if action == 2:  # Left turn
-                    distances = [lidar[i] for i in range(15, 19)]
+                    distances = [lidar[i] for i in range(14, 18)]
                 else:  # Right turn
                     distances = [lidar[i] for i in range(8, 12)]
                 min_distance = min(distances)
 
                 # Apply standard penalty for proximity if not turning towards the other robot or not within threshold
-                if min_distance < 0.35:
+                if min_distance < 0.25:
                     reward = -penalty_for_proximity(min_distance)
                 else:
                     reward = base_reward
@@ -342,7 +361,7 @@ class TwoWheelChairEnvLessActions(Env):
             # Adjust reward for adjacency outside of turning logic, if applicable
             if adjacency_status and not turning_towards_other_robot:
                 # Apply dynamic reward/penalty for maintaining adjacency
-                reward += calculate_adjacency_reward(difference_5+difference_6)
+                reward += base_reward*10  # Modify to make less severe if needed
 
         # Track adjacency in data for analysis
         if adjacency_status and within_threshold:
@@ -391,7 +410,9 @@ class TwoWheelChairEnvLessActions(Env):
         self.end_reached = False
         self.end_reached2 = False
         self.episode = 0
-        self.action_n = 0
+        self.naction1 = 0
+        self.naction2 = 0
+
         while len(self.lidar_sample) != 19 or len(self.lidar_sample2) != 19:pass
 
         self.state =np.array(self.lidar_sample + self.lidar_sample2)
@@ -423,6 +444,18 @@ class TwoWheelChairEnvLessActions(Env):
         return [self.lidar_sample, self.lidar_sample2]
 
     def sample_lidar(self,data): #LEFT SIDE ROBOT
+
+        if self.naction1 != self.episode: return
+        
+        # Check if enough time has passed since the last execution
+        current_time = time.time()
+        if hasattr(self, 'last_execution_time'):
+            elapsed_time = current_time - self.last_execution_time
+            if elapsed_time < 0.5:  # Less than 2 seconds have passed
+                return
+        else:
+            self.last_execution_time = current_time  # Initialize if not set
+
         self.change_robot_speed(1,0,0)
 
         self.lidar_sample = []
@@ -479,9 +512,24 @@ class TwoWheelChairEnvLessActions(Env):
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 
-        self.episode += 0.5
+        self.naction1 += 1
+        self.last_execution_time = current_time  # Update the last execution time
+
 
     def sample_lidar2(self,data):
+
+        if self.naction2 != self.episode: return
+
+        # Check if enough time has passed since the last execution
+        current_time2 = time.time()
+        if hasattr(self, 'last_execution_time2'):
+            elapsed_time2 = current_time2 - self.last_execution_time2
+            if elapsed_time2 < 0.5:  # Less than 2 seconds have passed
+                return
+        else:
+            self.last_execution_time2 = current_time2  # Initialize if not set
+
+
         self.change_robot_speed(2,0,0)
 
         self.lidar_sample2 = []
@@ -536,7 +584,9 @@ class TwoWheelChairEnvLessActions(Env):
         self.lidar_sample2[5] = back_distance
         self.lidar_sample2[6] = front_distance
 
-        self.episode += 0.5
+        self.naction2 += 1
+        self.last_execution_time2 = current_time2  # Update the last execution time
+
 
 
     def find_object_front_and_back(self, data_ranges, start_index, end_index, side):
