@@ -19,12 +19,14 @@ class TwoWheelChairEnvLessActions(Env):
 
     def __init__(self):
         #current data
-        self.initial_distance1 = None
-        self.initial_distance2 = None
+        self.distance1 = None
+        self.distance2 = None
+        self.previous_distance1 = None
+        self.previous_distance2 = None
         self.episode = 0
         self.naction1 = 0
         self.naction2 = 0
-        self.max_episodes = 1000
+        self.max_episodes = 300
         self.front_split = 9
         self.back_split = 3
         self.split = self.front_split + self.back_split
@@ -163,7 +165,7 @@ class TwoWheelChairEnvLessActions(Env):
             self.end_reached2 = self.finished2
 
         if self.collisions:
-            #reward = -400
+            reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
@@ -271,7 +273,56 @@ class TwoWheelChairEnvLessActions(Env):
 
     def optimized_reward_function(self, action, chair):
         # Constants
-        base_reward = 1000 / self.max_episodes
+        base_reward = 300 / self.max_episodes
+        penalty_scale = 4  # Adjust to scale the penalty with distance
+        progress_reward_scale = 2  # Scale for rewarding progress towards the goal
+        stop_penalty = -2  # Penalty for stopping
+        safe_distance = 0.25  # Distance considered safe from obstacles
+
+        # Check terminal state
+        end_condition = (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2)
+        if end_condition:
+            print(f"Terminal State {-base_reward}")
+            if action == 0: return base_reward  # Success
+            else: return stop_penalty  # Wrong action at terminal state
+
+        # Initialize reward
+        reward = 0
+
+        # Get lidar samples for obstacle detection
+        lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
+
+        # Find the minimum distance to an obstacle from the lidar samples
+        min_distance_to_obstacle = min([lidar[i] for i in range(9, 17)])
+
+        # Penalize if the robot is too close to an obstacle
+        if min_distance_to_obstacle < safe_distance:
+            reward += penalty_scale * (1 - (min_distance_to_obstacle / safe_distance))
+        else:
+            # Reward for moving safely without getting too close to an obstacle
+            reward += base_reward
+
+        # Reward for progress towards the goal
+        current_distance = self.distance1 if chair == 1 else self.distance2
+        previous_distance = self.previous_distance1 if chair == 1 else self.previous_distance2
+        distance_improvement = previous_distance - current_distance  # Positive if closer to the goal
+        if distance_improvement > 0:
+            reward += progress_reward_scale * distance_improvement
+
+        # Update previous distance for next step comparison
+        if chair == 1:
+            self.previous_distance1 = current_distance
+        else:
+            self.previous_distance2 = current_distance
+
+        return reward
+
+
+
+    def optimized_reward_function2(self, action, chair):
+        print(f"Chair {chair}")
+        # Constants
+        base_reward = 300 / self.max_episodes
         penalty_scale = 4  # Adjust to scale the penalty with distance
         adjacency_reward_base = 3  # Base reward for maintaining adjacency
         desired_adjacency_distance = 0.25  # Desired distance between chairs
@@ -288,6 +339,7 @@ class TwoWheelChairEnvLessActions(Env):
         # Check terminal state
         end_condition = (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2)
         if end_condition:
+            print(f"Terminal State {-base_reward}")
             if action == 0: return base_reward  # Success
             else: return -base_reward  # Wrong action at terminal state
 
@@ -307,10 +359,13 @@ class TwoWheelChairEnvLessActions(Env):
 
         # Apply penalty if chairs are not at the desired distance when adjacent
         if adjacency_status and not (desired_adjacency_distance - 0.05 <= adjacency_distance <= desired_adjacency_distance + 0.05):
-            reward -= penalty_for_proximity(abs(adjacency_distance - desired_adjacency_distance))
+            a = penalty_for_proximity(abs(adjacency_distance - desired_adjacency_distance))
+            print(f"Apply penalty if chairs are not at the desired distance when adjacent {a}")
+            reward -= a
 
         # Adjust reward for lidar samples 5 and 6 being close to equal
         if adjacency_status and within_threshold:
+            print(f"lidar samples 5 and 6 being close to equal {base_reward*10}")
             reward += base_reward*10  # Modify to make less severe if needed
 
 
@@ -330,20 +385,20 @@ class TwoWheelChairEnvLessActions(Env):
         
             # Use the minimum distance from these samples to determine how close the agent is to an obstacle
             min_distance_forward = min(front_slightly_left, front, front_slightly_right)
-            if min_distance_forward < 0.25:  # Close to a wall
-                reward = -penalty_for_proximity(min_distance_forward)
+            if min_distance_forward < 0.35:  # Close to a wall
+                a = -penalty_for_proximity(min_distance_forward)
+                print(f"penlaty proximity front {a}")
+                reward += a
             else:
-                reward = base_reward
-
-        # Stop action
-        elif action == 0:
-            reward = -base_reward*100  # Modify to make less severe if needed
+                reward += base_reward
 
         # Adjust turning actions with proper adjacency consideration for both chairs
         if action in [2, 3]:  # Turning actions
             if turning_towards_other_robot:
                 # Apply reward for maintaining formation when turning towards each other
-                reward += calculate_adjacency_reward(difference_5+difference_6)
+                a = calculate_adjacency_reward(difference_5+difference_6)
+                print(f"adjacency {a}")
+                reward += a
             else:
                 # Determine minimum distance to obstacle for the direction of turn
                 if action == 2:  # Left turn
@@ -354,9 +409,11 @@ class TwoWheelChairEnvLessActions(Env):
 
                 # Apply standard penalty for proximity if not turning towards the other robot or not within threshold
                 if min_distance < 0.25:
-                    reward = -penalty_for_proximity(min_distance)
+                    a = -penalty_for_proximity(min_distance)
+                    print(f"proximity {a}")
+                    reward += a
                 else:
-                    reward = base_reward
+                    reward += base_reward
         else:
             # Adjust reward for adjacency outside of turning logic, if applicable
             if adjacency_status and not turning_towards_other_robot:
@@ -412,6 +469,10 @@ class TwoWheelChairEnvLessActions(Env):
         self.episode = 0
         self.naction1 = 0
         self.naction2 = 0
+        self.previous_distance1 = None
+        self.previous_distance2 = None
+        self.distance1 = None
+        self.distance2 = None
 
         while len(self.lidar_sample) != 19 or len(self.lidar_sample2) != 19:pass
 
@@ -638,6 +699,8 @@ class TwoWheelChairEnvLessActions(Env):
         values = [x for x in data.ranges if not np.isnan(x)]
         if len(values) > 0:
             self.distance1= min(values)
+            if self.previous_distance1 is None:
+                self.previous_distance1 = min(values)
             self.finished = min(values) < self.min_distance
 
 
@@ -645,6 +708,8 @@ class TwoWheelChairEnvLessActions(Env):
         values = [x for x in data.ranges if not np.isnan(x)]
         if len(values) > 0:
             self.distance2= min(values)
+            if self.previous_distance2 is None:
+                self.previous_distance2 = min(values)
             self.finished2 = min(values) < self.min_distance
                 
     def update_position(self, data):

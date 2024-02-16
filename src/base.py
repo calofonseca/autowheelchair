@@ -19,7 +19,7 @@ class BaseClass:
                 print(f"STEP:{step_count} Reward:{reward}")
                 #print(next_obs[0])
                 #print(next_obs[1])
-                #time.sleep(10)
+                #time.sleep(30)
                 self.update(obs, [action1, action2], reward, next_obs, done)
                 obs = next_obs
                 step_count += 1
@@ -27,7 +27,7 @@ class BaseClass:
                 if env.end_reached and env.end_reached2:
                     end_reached=True
                 # Update epsilon only every 200 steps
-                if step_count % 500== 0:
+                if step_count % 250== 0:
                     self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
                     step2=0

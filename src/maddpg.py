@@ -186,7 +186,7 @@ class MADDPG(RL):
         if end_reached:
             self.epsilon = max(self.epsilon * self.decay_factor, 0.10)  
         else:
-            self.epsilon = max(self.epsilon * self.decay_factor, 0.25)
+            self.epsilon = max(self.epsilon * self.decay_factor, 0.20)
 
     #def update_epsilon(self, step):  # Pass the current step or episode number
     #    # Calculate the new value of epsilon using exponential decay
