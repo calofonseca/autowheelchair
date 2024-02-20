@@ -25,8 +25,8 @@ if __name__ == '__main__':
     states = env.observation_space.shape
     actions = env.action_space.n
    
-    model = RLAgent(int(num_wheelchairs), int(38/2), int(4), critic_units=[256, 128, 64, 32], 
-                    actor_units=[128,64,32,16], lr_actor=1e-4, lr_critic=1e-3)
+    model = RLAgent(int(num_wheelchairs), int(38/2), int(4), critic_units=[512, 256, 128, 64, 32], 
+                    actor_units=[256,128,64,32,16], lr_actor=1e-4, lr_critic=1e-3)
 
     if globals.load:
         model.load_weights(globals.load_file)

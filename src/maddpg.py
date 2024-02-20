@@ -94,6 +94,7 @@ class MADDPG(RL):
 
         obs_batch, actions_batch, rewards_batch, next_obs_batch, dones_batch = self.replay_buffer.sample(
             self.batch_size)
+        
 
         obs_tensors = []
         next_obs_tensors = []
@@ -114,7 +115,6 @@ class MADDPG(RL):
             reward_tensors.append(
                 torch.tensor(rewards_batch[agent_num], dtype=torch.float32).to(self.device).view(-1, 1))
             dones_tensors.append(torch.tensor(dones_batch[agent_num], dtype=torch.float32).to(self.device).view(-1, 1))
-
 
         obs_full = torch.cat(obs_tensors, dim=1)
         next_obs_full = torch.cat(next_obs_tensors, dim=1)
@@ -167,10 +167,10 @@ class MADDPG(RL):
                      for actor, obs in zip(self.actors, encoded_observations)]
             print("Actions Probs")
             print (actions_probs)
-            r = [self.one_hot_decode(action_prob) for action_prob in actions_probs]
+            actions = [np.argmax(action_prob, axis=-1) for action_prob in actions_probs]
             print("ACTIONS DETERMINISTIC")
-            print(r)
-            return r
+            print(actions)
+            return actions
 
     def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
         if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
@@ -188,12 +188,6 @@ class MADDPG(RL):
         else:
             self.epsilon = max(self.epsilon * self.decay_factor, 0.20)
 
-    #def update_epsilon(self, step):  # Pass the current step or episode number
-    #    # Calculate the new value of epsilon using exponential decay
-    #    new_epsilon = self.epsilon_end + (self.epsilon_start - self.epsilon_end) * np.exp(-self.decay_rate * step)
-   # 
-        # Ensure that epsilon does not fall below the minimum value
-    #    self.epsilon = max(new_epsilon, self.min_epsilon)
 
     def predict(self, observations, step, deterministic=False):
         actions_return = None
@@ -284,10 +278,7 @@ class Actor(nn.Module):
             x = F.relu(fc(x))
 
         x = self.fc_layers[-1](x)
-        r = F.softmax(x, dim=0)
-        return r
-
-        return F.softmax(self.fc_layers[-1](x), dim=1)  # Softmax for probability distribution
+        return F.softmax(x, dim=-1)
 
 class Critic(nn.Module):
     """Critic (Value) Model."""

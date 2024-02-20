@@ -13,10 +13,13 @@ class BaseClass:
             print("RESETED")
             obs = env.reset()
             while True:
+                print()
+                print(f"STEP:{step_count}")
+
                 action1, action2 = self.predict(obs, step2)
                 print(f"ACTION1: {action1} ACTION2: {action2}")
                 next_obs, reward, done, _ = env.step(action1, action2)
-                print(f"STEP:{step_count} Reward:{reward}")
+                print(f"Reward:{reward}")
                 #print(next_obs[0])
                 #print(next_obs[1])
                 #time.sleep(30)
@@ -27,7 +30,7 @@ class BaseClass:
                 if env.end_reached and env.end_reached2:
                     end_reached=True
                 # Update epsilon only every 200 steps
-                if step_count % 250== 0:
+                if step_count % 1000== 0:
                     self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
                     step2=0

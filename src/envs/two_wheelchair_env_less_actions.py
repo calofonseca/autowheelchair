@@ -165,7 +165,7 @@ class TwoWheelChairEnvLessActions(Env):
             self.end_reached2 = self.finished2
 
         if self.collisions:
-            reward = -400
+            #reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
@@ -199,8 +199,8 @@ class TwoWheelChairEnvLessActions(Env):
         #reward2 += self.apply_penalty_direction_changes(self.action_history2,a2)   
 
         #Penalizing Repetitive Actions #Might disapeer
-        reward1 += self.apply_penalty_if_repetitive(self.action_history,a1,reward)
-        reward2 += self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
+        #reward1 += self.apply_penalty_if_repetitive(self.action_history,a1,reward)
+        #reward2 += self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
 
         self.total_steps += 1
         if a1 == 1:self.forward_steps += 0.5
@@ -277,14 +277,14 @@ class TwoWheelChairEnvLessActions(Env):
         penalty_scale = 4  # Adjust to scale the penalty with distance
         progress_reward_scale = 2  # Scale for rewarding progress towards the goal
         stop_penalty = -2  # Penalty for stopping
-        safe_distance = 0.25  # Distance considered safe from obstacles
+        safe_distance = 0.45  # Distance considered safe from obstacles
 
         # Check terminal state
         end_condition = (chair == 1 and self.end_reached) or (chair == 2 and self.end_reached2)
-        if end_condition:
+        if action == 0:   # Success
             print(f"Terminal State {-base_reward}")
-            if action == 0: return base_reward  # Success
-            else: return stop_penalty  # Wrong action at terminal state
+            if end_condition: return base_reward           
+            else: return stop_penalty  
 
         # Initialize reward
         reward = 0
@@ -293,21 +293,40 @@ class TwoWheelChairEnvLessActions(Env):
         lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
 
         # Find the minimum distance to an obstacle from the lidar samples
-        min_distance_to_obstacle = min([lidar[i] for i in range(9, 17)])
+        min_distance_to_obstacle = min([lidar[i] for i in range(12, 14)])
 
-        # Penalize if the robot is too close to an obstacle
+        # Extracting lidar samples for the relevant indices
+        relevant_lidar_samples = [lidar[i] for i in range(12, 14)]
+
+        # Finding the minimum distance and its index in the relevant lidar samples
+        min_distance_to_obstacle, min_index = min((value, index) for index, value in enumerate(relevant_lidar_samples))
+
+        # The actual index in the full lidar array
+        actual_min_index = min_index + 12
+
+        # Penalize if the robot is too close to an obstacle, with exponential penalty.
+        print(f"MINDISTANCE: {min_distance_to_obstacle}, INDEX: {actual_min_index}")
         if min_distance_to_obstacle < safe_distance:
-            reward += penalty_scale * (1 - (min_distance_to_obstacle / safe_distance))
+            # Exponential penalty calculation
+            penalty = math.exp(penalty_scale * (1 - min_distance_to_obstacle / safe_distance)) - 1
+            reward -= penalty
         else:
             # Reward for moving safely without getting too close to an obstacle
             reward += base_reward
+        
+        print(f"REWARD colisssssssion: {reward}")
 
         # Reward for progress towards the goal
         current_distance = self.distance1 if chair == 1 else self.distance2
         previous_distance = self.previous_distance1 if chair == 1 else self.previous_distance2
         distance_improvement = previous_distance - current_distance  # Positive if closer to the goal
         if distance_improvement > 0:
-            reward += progress_reward_scale * distance_improvement
+            reward += progress_reward_scale * distance_improvement * 100
+        else:
+            reward += progress_reward_scale * distance_improvement * 200
+        
+        print(f"REWARD progresssssssss: {progress_reward_scale * distance_improvement*100}")
+
 
         # Update previous distance for next step comparison
         if chair == 1:
@@ -512,7 +531,7 @@ class TwoWheelChairEnvLessActions(Env):
         current_time = time.time()
         if hasattr(self, 'last_execution_time'):
             elapsed_time = current_time - self.last_execution_time
-            if elapsed_time < 0.5:  # Less than 2 seconds have passed
+            if elapsed_time < 0.3:  # Less than 2 seconds have passed
                 return
         else:
             self.last_execution_time = current_time  # Initialize if not set
@@ -585,7 +604,7 @@ class TwoWheelChairEnvLessActions(Env):
         current_time2 = time.time()
         if hasattr(self, 'last_execution_time2'):
             elapsed_time2 = current_time2 - self.last_execution_time2
-            if elapsed_time2 < 0.5:  # Less than 2 seconds have passed
+            if elapsed_time2 < 0.3:  # Less than 2 seconds have passed
                 return
         else:
             self.last_execution_time2 = current_time2  # Initialize if not set
