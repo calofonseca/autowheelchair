@@ -22,8 +22,8 @@ except ImportError:
 
 class MADDPG(RL):
     def __init__(self, num_agents, agent_observation_size, agent_action_size, actor_units: list = [512, 256, 128, 64, 32], critic_units: list = [1024, 512, 256, 128, 64, 32],
-                 buffer_size: int = int(1e5), batch_size: int = 256, gamma: float = 0.90, sigma=0.24,
-                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.995, tau=1e-3, *args, **kwargs):
+                 buffer_size: int = int(5e5), batch_size: int = 128, gamma: float = 0.95, sigma=0.24,
+                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.995, tau=1e-2, *args, **kwargs):
 
         super().__init__(**kwargs)
 
@@ -74,10 +74,9 @@ class MADDPG(RL):
                 self.device) for i in range(self.num_agents)
         ]
 
-        self.actors_optimizer = [torch.optim.Adam(self.actors[i].parameters(), lr=lr_actor) for i in
-                                 range(self.num_agents)]
-        self.critics_optimizer = [torch.optim.Adam(self.critics[i].parameters(), lr=lr_critic) for i in
-                                  range(self.num_agents)]
+        self.actors_optimizer = [torch.optim.Adam(actor.parameters(), lr=lr_actor, weight_decay=1e-4) for actor in self.actors]
+        self.critics_optimizer = [torch.optim.Adam(critic.parameters(), lr=lr_critic, weight_decay=1e-4) for critic in self.critics]
+
 
         self.scaler = GradScaler()
         self.exploration_done = False
