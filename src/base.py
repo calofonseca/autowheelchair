@@ -13,6 +13,7 @@ class BaseClass:
             print("RESETED")
             obs = env.reset()
             while True:
+                step_start_time = time.time()
                 print()
                 print(f"STEP:{step_count}")
 
@@ -20,25 +21,25 @@ class BaseClass:
                 print(f"ACTION1: {action1} ACTION2: {action2}")
                 next_obs, reward, done, _ = env.step(action1, action2)
                 print(f"Reward:{reward}")
-                #print(next_obs[0])
-                #print(next_obs[1])
-                #time.sleep(30)
                 self.update(obs, [action1, action2], reward, next_obs, done)
                 obs = next_obs
                 step_count += 1
                 step2 +=1
                 if env.end_reached and env.end_reached2:
                     end_reached=True
+                
+                # Calculate and print step duration
+                step_duration = time.time() - step_start_time  # Calculate time taken for the step
+                print(f"Step Time: {step_duration:.4f} seconds")  # Print step duration with 2 decimal places
+
+
                 # Update epsilon only every 200 steps
-                if step_count % 1000== 0:
+                if step_count % 100== 0:
                     self.update_epsilon(end_reached)
                 if done or step_count >= total_steps:
                     step2=0
                     print("BREAKED")
                     break
-
-            if step_count % 100 == 0:  # Just as an example, print every 100 steps
-                print(f"Completed Steps: {step_count}/{total_steps}")
 
     def test(self, env, total_episodes):
         episode_count = 0
