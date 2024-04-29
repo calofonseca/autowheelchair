@@ -34,8 +34,9 @@ class BaseClass:
 
 
                 # Update epsilon only every 200 steps
-                if step_count % 100== 0:
-                    self.update_epsilon(end_reached)
+                if step_count % 200== 0:
+                    for noise in self.noise:
+                        noise.decay_sigma()
                 if done or step_count >= total_steps:
                     step2=0
                     print("BREAKED")

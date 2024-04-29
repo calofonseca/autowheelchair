@@ -77,15 +77,15 @@ class MADDPG(RL):
         self.actors_optimizer = [torch.optim.Adam(actor.parameters(), lr=lr_actor, weight_decay=1e-4) for actor in self.actors]
         self.critics_optimizer = [torch.optim.Adam(critic.parameters(), lr=lr_critic, weight_decay=1e-4) for critic in self.critics]
 
+        # Noise process
+        self.noise = [OUNoise(size=agent_action_size, sigma=self.sigma, seed=self.seed) for _ in range(num_agents)]
 
         self.scaler = GradScaler()
         self.exploration_done = False
 
     def update(self, observations, actions, reward, next_observations, done):
 
-        # One-hot encode actions before storing them
-        one_hot_actions = [self.one_hot_encode(act, self.agent_action_size) for act in actions]
-        self.replay_buffer.push(observations, one_hot_actions, reward, next_observations, done)
+        self.replay_buffer.push(observations, actions, reward, next_observations, done)
 
         if len(self.replay_buffer) < self.batch_size:
             print("returned due to buffer")
@@ -93,7 +93,6 @@ class MADDPG(RL):
 
         obs_batch, actions_batch, rewards_batch, next_obs_batch, dones_batch = self.replay_buffer.sample(
             self.batch_size)
-        
 
         obs_tensors = []
         next_obs_tensors = []
@@ -159,67 +158,43 @@ class MADDPG(RL):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
 
     def get_deterministic_actions(self, observations):
-
         with torch.no_grad():
             encoded_observations = [self.get_encoded_observations(i, obs) for i, obs in enumerate(observations)]
-            actions_probs = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
-                     for actor, obs in zip(self.actors, encoded_observations)]
-            print("Actions Probs")
-            print (actions_probs)
-            actions = [np.argmax(action_prob, axis=-1) for action_prob in actions_probs]
-            print("ACTIONS DETERMINISTIC")
+            actions = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
+                   for actor, obs in zip(self.actors, encoded_observations)]
+            print("Deterministic Actions:")
             print(actions)
             return actions
 
     def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
-        if np.random.rand() < self.epsilon:  # Epsilon-greedy strategy
-            print(f"RANDOM: {self.epsilon}")
-            a1 = np.random.choice(range(self.agent_action_size))
-            a2 = np.random.choice(range(self.agent_action_size))
-            return [a1,a2]
-        else:
-            print("DETERMINISTIC")
-            return self.get_deterministic_actions(states)
+        deterministic_actions = self.get_deterministic_actions(states)
+        noisy_actions = []
+        # Loop over each action and corresponding noise generator
+        for idx, action in enumerate(deterministic_actions):
+            # Retrieve the correct noise generator for the current agent
+            noise = self.noise[idx].sample()
+            # Add noise to the deterministic action
+            noisy_action = action + noise
+            noisy_actions.append(noisy_action)
 
-    def update_epsilon(self, end_reached):  # Call this method at the end of each episode if you want epsilon to decay
-        if end_reached:
-            self.epsilon = max(self.epsilon * self.decay_factor, 0.10)  
-        else:
-            self.epsilon = max(self.epsilon * self.decay_factor, 0.20)
-
+        print("Exploration Actions with Noise:")
+        print(noisy_actions)
+        return noisy_actions
 
     def predict(self, observations, step, deterministic=False):
-        actions_return = None
         if deterministic:
-            actions_return = self.get_deterministic_actions(observations)
+            actions = self.get_deterministic_actions(observations)
         else:
-            actions_return = self.get_exploration_prediction(observations, step)
-
-        return actions_return
-
-    def predict_deterministic(self, encoded_observations):
-        actions_return = None
-        with torch.no_grad():
-            actions_return = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
-                    for actor, obs in zip(self.actors, encoded_observations)]
-        return actions_return
-    
-
+            actions = self.get_exploration_prediction(observations, step)
+        return actions
+   
     def get_encoded_observations(self, index: int, observations: List[float]) -> npt.NDArray[np.float64]:
         return np.array([j for j in np.hstack(np.array(observations, dtype=float)) if j != None], dtype = float)
 
     def reset(self):
         super().reset()
-    
-    def one_hot_encode(self, action, action_size):
-        """Converts a discrete action into a one-hot encoded vector."""
-        one_hot_vector = np.zeros(action_size, dtype=np.float32)
-        one_hot_vector[action] = 1
-        return one_hot_vector
-    
-    def one_hot_decode(self, encoded_action):
-        """Converts a one-hot encoded vector back into a discrete action."""
-        return np.argmax(encoded_action)  # Adding 1 to shift from 0-based index to 1-based action numbering
+        for noise in self.noise:
+            noise.reset()
 
     def save_weights(self, filename_prefix):
         """Save all network weights."""
@@ -257,6 +232,7 @@ class Actor(nn.Module):
         """
         super(Actor, self).__init__()
         self.seed = torch.manual_seed(seed)
+        self.max_action = 1
 
         # Input layer
         self.fc_layers = [nn.Linear(state_size, fc_units[0])]
@@ -275,9 +251,8 @@ class Actor(nn.Module):
         x = state
         for fc in self.fc_layers[:-1]:
             x = F.relu(fc(x))
-
         x = self.fc_layers[-1](x)
-        return F.softmax(x, dim=-1)
+        return torch.tanh(x) * self.max_action
 
 class Critic(nn.Module):
     """Critic (Value) Model."""
@@ -328,30 +303,24 @@ class Critic(nn.Module):
 
 
 class OUNoise:
-    """Ornstein-Uhlenbeck process."""
-
-    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.25, decay_factor=0.005):
-        ...
-        self.decay_factor = decay_factor
-        """Initialize parameters and noise process."""
+    def __init__(self, size, seed, mu=0., theta=0.15, sigma=0.2, sigma_decay=0.99):
         self.mu = mu * np.ones(size)
         self.theta = theta
         self.sigma = sigma
-        self.seed = random.seed(seed)
-        self.reset()
-        self.internal_state = copy.copy(self.mu)
+        self.state = np.copy(self.mu)
+        self.sigma_decay = sigma_decay
 
     def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.internal_state = copy.copy(self.mu)
+        self.state = np.copy(self.mu)
 
     def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.internal_state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for _ in range(len(x))])
-        self.internal_state = x + dx
-        #self.sigma *= self.decay_factor
-        return self.internal_state
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(len(x))
+        self.state = x + dx
+        return self.state
+
+    def decay_sigma(self):
+        self.sigma *= self.sigma_decay
 
 import numpy as np
 from collections import deque

@@ -22,10 +22,10 @@ if __name__ == '__main__':
             env.start_points.append((map[0], map[1]['robot_space'], map[1]['end_space']))
 
 
-    states = env.observation_space.shape
-    actions = env.action_space.n
+    #states = env.observation_space.shape
+    #actions = env.action_space.n
    
-    model = RLAgent(int(num_wheelchairs), int(38/2), int(4), critic_units=[64, 32, 16], 
+    model = RLAgent(int(num_wheelchairs), int(7), int(1), critic_units=[64, 32, 16], 
                     actor_units=[32,16], lr_actor=1e-3, lr_critic=1e-2)
 
     if globals.load:

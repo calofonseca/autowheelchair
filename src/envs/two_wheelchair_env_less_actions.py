@@ -5,6 +5,8 @@ from geometry_msgs.msg import Twist
 from geometry_msgs.msg import Pose2D
 from flatland_msgs.msg import Collisions
 from flatland_msgs.srv import MoveModel
+import matplotlib.pyplot as plt
+import numpy as np
 from nav_msgs.msg import Odometry 
 from gym import Env
 from gym.spaces import Discrete, Box, Tuple, MultiDiscrete
@@ -14,10 +16,20 @@ import pandas as pd
 from tf.transformations import euler_from_quaternion
 import time
 import math
+import rospy
+from sensor_msgs.msg import LaserScan
+from visualization_msgs.msg import Marker
+from geometry_msgs.msg import Point
+from std_msgs.msg import Header, ColorRGBA
 
 class TwoWheelChairEnvLessActions(Env):
 
     def __init__(self):
+
+        self.previousa1 = 0
+        self.previousa2 = 0
+        self.action_duration = 0.5
+
         #current data
         self.distance1 = None
         self.distance2 = None
@@ -25,8 +37,8 @@ class TwoWheelChairEnvLessActions(Env):
         self.previous_distance2 = None
 
         self.episode = 0
-        self.naction1 = 0
-        self.naction2 = 0
+        self.naction1 = False
+        self.naction2 = False
         self.max_episodes = 300
         self.front_split = 9
         self.back_split = 3
@@ -80,6 +92,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.odom_topic2 = "/odom2"
         self.prox_topic2 = "/prox_laser2"
 
+        self.points_pub = rospy.Publisher('highlighted_points', Marker, queue_size=10)
 
         rospy.Subscriber(self.scan_topic, LaserScan, self.sample_lidar, buff_size=10000000, queue_size=1)
         rospy.Subscriber(self.bumper_topic, Collisions, self.check_collisions, buff_size=10000000, queue_size=1)
@@ -100,27 +113,42 @@ class TwoWheelChairEnvLessActions(Env):
         #learning env
         self.fixed_linear_speed = 0.3
 
-        self.observation_space = Box(0, 2, shape=(1,(self.split + 7) * 2))
-        
-        
-        while len(self.lidar_sample) != 19  and len(self.lidar_sample2) != 19 :pass
-        self.state = np.array(self.lidar_sample + self.lidar_sample2)
+        # Define observation space for each robot
+        self.num_observations = 7  # Number of LiDAR samples
+        self.min_range = 0  # Minimum range measured by LiDAR
+        self.max_range = 2  # Maximum range (set based on your LiDAR specs)
 
+        # Create observation spaces
+        self.robot1_observation_space_box = Box(low=self.min_range, high=self.max_range, shape=(self.num_observations,), dtype=np.float32)
+        self.robot2_observation_space_box = Box(low=self.min_range, high=self.max_range, shape=(self.num_observations,), dtype=np.float32)
+        
         # Assuming these are your maximum and minimum angular velocities
-        max_angular_speed = 1.5  # Example max angular speed
-        min_angular_speed = -1.5 # Example min angular speed
+        self.max_angular_speed = 1.5  # Example max angular speed
+        self.min_angular_speed = -1.5 # Example min angular speed
 
-        # Continuous action space for angular velocity
-        self.action_space = Box(low=np.array([min_angular_speed]), high=np.array([max_angular_speed]), dtype=np.float32)
+        # Define the action spaces for each robot
+        self.robot1_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
+        self.robot2_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
 
-    def change_robot_speed(self, robot, angular):
+        self.robot1_observation_space = []
+        self.robot2_observation_space = []
+        self.robot1_action_space = 0
+        self.robot2_action_space = 0
+
+        #Wait for observations to fill in (lidar samples + previous actions + calculated features)
+        while len(self.robot1_observation_space) != self.num_observations  and len(self.robot2_observation_space) != self.num_observations :pass
+        self.state = [self.robot1_observation_space, self.robot2_observation_space]
+
+
+    def change_robot_speed(self, robot, angular, linear= None):
         """
         Apply the given action to the robot.
-        :param action: The action to apply. action[0] contains the angular velocity.
+        :param action: The action to apply.
         """
         twist_msg = Twist()
         
-        linear = self.fixed_linear_speed # Fixed linear speed 
+        if linear is None:
+            linear = self.fixed_linear_speed # Fixed linear speed 
         twist_msg.linear.x = linear
         twist_msg.angular.z = angular
 
@@ -135,20 +163,31 @@ class TwoWheelChairEnvLessActions(Env):
         :param a1: The action to apply for robot 1.
         :param a2: The action to apply for robot 2.
         """
-        
-        while not (self.naction1 == self.episode + 1 and self.naction2 == self.episode + 1):
+        #Apply Actions
+        #Actions only reflet the changes in angular speed so the sum of the previous and new is made
+        self.change_robot_speed(1, a1)
+        self.change_robot_speed(2, a2)
+        #self.previousa1 = self.previousa1 + a1
+        #self.previousa2 = self.previousa2 + a2
+
+        time.sleep(self.action_duration)
+
+        # Stop the robots to gather data and calculate rewards
+        self.change_robot_speed(1, 0, linear=0)
+        self.change_robot_speed(2, 0, linear=0)
+
+        #Change variable to indicate that the lidar need to get the latest observations
+        self.naction1=False
+        self.naction2=False
+        while not (self.naction1 and self.naction2):
             # Optionally, include a small delay to prevent the loop from consuming too much CPU
             time.sleep(0.0001)  
-        
+       
         reward=0
         reward1 = 0
         reward2 = 0
 
-        #Apply Actions
-        self.change_robot_speed(1, a1)
-        self.change_robot_speed(2, a2)
-
-        self.state = np.array(self.lidar_sample + self.lidar_sample2)
+        self.state = [self.robot1_observation_space, self.robot2_observation_space]
         
         done = False
         
@@ -169,13 +208,13 @@ class TwoWheelChairEnvLessActions(Env):
 
 
         if self.collisions:
-            #reward = -400
+            reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
             self.data['end_condition'][-1] = 'collision'
         elif self.end_reached and self.end_reached2:
-            reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
+            #reward = 800 + ((self.max_episodes - ((self.episode) * 200) / self.max_episodes))
             #Changed for reward based on proximity of target
             done = True
             self.data['end_condition'][-1] = 'finished'
@@ -195,6 +234,7 @@ class TwoWheelChairEnvLessActions(Env):
 
         #REWARD CALCULATION
         #Penalizing Actions
+            
         reward1 += self.optimized_reward_function(a1, 1)
         reward2 += self.optimized_reward_function(a2, 2)
         
@@ -219,18 +259,17 @@ class TwoWheelChairEnvLessActions(Env):
         self.action_history.append(a1)
         self.action_history2.append(a2)
 
-        self.data['actions'][-1].append(action)
+        self.data['actions'][-1].append((a1, a2))
         self.data['rewards'][-1].append(reward)
         self.data['positions'][-1].append((self.position, self.position2))
 
 
         # Split the state for each agent based on your state formation
-        observations = [self.lidar_sample, self.lidar_sample2]  # Separate observations for each agent
         rewards = [reward + reward1, reward + reward2]  # If shared rewards, otherwise calculate individually
         dones = done  # Both agents likely share the same done flag in your scenario
         infos = [{}, {}]  # Additional info if any, per agent
         self.episode += 1
-        return observations, rewards, dones, infos      
+        return self.state, rewards, dones, infos      
 
     
     def apply_penalty_direction_changes(self, action_history, a_current):
@@ -328,6 +367,9 @@ class TwoWheelChairEnvLessActions(Env):
     def render(self): pass
     
     def reset(self):
+        # Stop the robots to gather data and calculate rewards
+        self.change_robot_speed(1, 0, linear=0)
+        self.change_robot_speed(2, 0, linear=0)
         self.lidar_sample = []
         self.lidar_sample2 = []
 
@@ -356,22 +398,31 @@ class TwoWheelChairEnvLessActions(Env):
         target_y = map[2][1]
         self.change_robot_position("prox", target_x, target_y, 0)
 
+        self.previousa1 = 0
+        self.previousa2 = 0
         self.collisions = False
         self.finished = False
         self.finished2 = False
         self.end_reached = False
         self.end_reached2 = False
         self.episode = 0
-        self.naction1 = 0
-        self.naction2 = 0
+        self.naction1 = False
+        self.naction2 = False
         self.previous_distance1 = None
         self.previous_distance2 = None
         self.distance1 = None
         self.distance2 = None
 
-        while len(self.lidar_sample) != 19 and len(self.lidar_sample2) != 19:pass
+        self.robot1_observation_space = []
+        self.robot2_observation_space = []
+        self.robot1_action_space = 0
+        self.robot2_action_space = 0
 
-        self.state =np.array(self.lidar_sample + self.lidar_sample2)
+        #Wait for observations to fill in (lidar samples + previous actions + calculated features)
+        while not (self.naction1 and self.naction2):
+            # Optionally, include a small delay to prevent the loop from consuming too much CPU
+            time.sleep(0.0001)  
+        self.state = [self.robot1_observation_space,  self.robot2_observation_space]
 
         self.action_history = []
         self.rotation_counter = 0
@@ -399,143 +450,58 @@ class TwoWheelChairEnvLessActions(Env):
    
         return [self.lidar_sample, self.lidar_sample2]
 
+    def get_lidar_samples(self, data, num_ranges):
+        angles = [0, -10, 10, -25, 25, -45, 45]  # Define specific angles to sample
+        sampled_points = []
+        for angle in angles:
+            index = int((angle + 180) / 360 * num_ranges) % num_ranges  # Calculate index
+            distance = data.ranges[index]  # Get the corresponding distance from LiDAR data
+            sampled_points.append((angle, distance))  # Store distance
+        return sampled_points
+
+    def publish_highlighted_points(self, sampled_points):
+        marker = Marker()
+        marker.header.frame_id = "static_laser_link1"
+        marker.header.stamp = rospy.Time.now()
+        marker.type = marker.POINTS
+        marker.action = marker.ADD
+        marker.points = [Point(np.cos(np.deg2rad(angle)) * distance, np.sin(np.deg2rad(angle)) * distance, 0) for angle, distance in sampled_points]
+        marker.scale.x = 0.15
+        marker.scale.y = 0.15
+        marker.color = ColorRGBA(1.0, 0.0, 0.0, 1.0)  # Red color
+        self.points_pub.publish(marker)
+
     def sample_lidar(self,data): #LEFT SIDE ROBOT
+        if self.naction1: return
+        print("Sampling Lidar 1")
 
-        if self.naction1 != self.episode: return
-        
-        # Check if enough time has passed since the last execution
-        current_time = time.time()
-        if hasattr(self, 'last_execution_time'):
-            elapsed_time = current_time - self.last_execution_time
-            if elapsed_time < 0.002:  # Less than 2 seconds have passed
-                return
-        else:
-            self.last_execution_time = current_time  # Initialize if not set
-
+        num_ranges = len(data.ranges)
         self.lidar_sample = []
 
-        front_lasers = math.ceil(len(data.ranges) / 2)
-        each = front_lasers // (self.front_split - 1)
-        front_lasers += each
-        front_dist = [each for _ in range(self.front_split)]
-        back = False
-        for i in range(len(data.ranges) % self.split): 
-            if back: front_dist[self.front_split - ((i//2)+1)] += 1
-            else: front_dist[i//2] += 1
-            back = not back
-        
-        self.lidar_sample.append((data.ranges[math.ceil(len(data.ranges) / 2) - 1])) #0
-        self.lidar_sample.append((data.ranges[(math.ceil(len(data.ranges) / 2) - 1) - (each // 2)])) #1
-        self.lidar_sample.append((data.ranges[(math.ceil(len(data.ranges) / 2) - 1) + (each // 2)])) #2
-        self.lidar_sample.append((data.ranges[math.ceil(len(data.ranges) / 4) - 1])) #3
-        self.lidar_sample.append((data.ranges[math.ceil(len(data.ranges) * (3/4)) - 1])) #4
-        self.lidar_sample.append((data.ranges[(math.ceil(len(data.ranges) / 4) - 1) - (each // 2)])) #5
-        self.lidar_sample.append((data.ranges[(math.ceil(len(data.ranges) / 4) - 1) + (each // 2)])) #6
+        sampled_points = self.get_lidar_samples(data, num_ranges)
 
+        self.publish_highlighted_points(sampled_points)
 
-        back_lasers = len(data.ranges) - front_lasers
-        back_dist = [(back_lasers // self.back_split) for _ in range(self.back_split)]
-        for i in range(back_lasers % self.back_split): back_dist[i] += 1
+        self.lidar_sample = [distance for _, distance in sampled_points]
 
-        dist = back_dist[:math.ceil(self.back_split/2)] + front_dist + back_dist[math.ceil(self.back_split/2):]
+        self.robot1_observation_space = self.lidar_sample  
 
-        if self.back_split % 2 == 0:
-            min_range =  0
-            max_range = dist[0]
-            self.lidar_sample.append(min(data.ranges[min_range:max_range]))
-        else:
-            min_range =  len(data.ranges) - (dist[0] // 2)
-            max_range = (dist[0] // 2) + (dist[0] % 2)
-            self.lidar_sample.append(min(data.ranges[min_range:len(data.ranges)] + data.ranges[0:max_range]))
-        
-        for i in range(1, self.split):
-            min_range = max_range
-            max_range += dist[i]
-            self.lidar_sample.append(min(data.ranges[min_range:max_range]))
+        self.naction1 = True
 
-        for i in range (len(self.lidar_sample)): self.lidar_sample[i] = min(self.lidar_sample[i], 2)
-
-        #print(len(data.ranges))
-        #print("ROBOT 1")
-        # Calculate indices for #5 and #6 based on your setup
-        start_index = math.ceil(len(data.ranges) / 4) - 1 - (each // 2*4) 
-        end_index = math.ceil(len(data.ranges) / 4) - 1 + (each // 2*4) 
-
-        front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 1)
-        self.lidar_sample2[5] = back_distance
-        self.lidar_sample2[6] = front_distance
-
-        self.naction1 += 1
-        self.last_execution_time = current_time  # Update the last execution time
-
-
-    def sample_lidar2(self,data):
-
-        if self.naction2 != self.episode: return
-
-        # Check if enough time has passed since the last execution
-        current_time2 = time.time()
-        if hasattr(self, 'last_execution_time2'):
-            elapsed_time2 = current_time2 - self.last_execution_time2
-            if elapsed_time2 < 0.002:  # Less than 2 seconds have passed
-                return
-        else:
-            self.last_execution_time2 = current_time2  # Initialize if not set
-
+    def sample_lidar2(self, data):
+        if self.naction2: return
+        print("Sampling Lidar 2")
+      
+        num_ranges = len(data.ranges)
         self.lidar_sample2 = []
 
-        front_lasers = math.ceil(len(data.ranges) / 2)
-        each = front_lasers // (self.front_split - 1)
-        front_lasers += each
-        front_dist = [each for _ in range(self.front_split)]
-        back = False
-        for i in range(len(data.ranges) % self.split): 
-            if back: front_dist[self.front_split - ((i//2)+1)] += 1
-            else: front_dist[i//2] += 1
-            back = not back
-        
-        self.lidar_sample2.append((data.ranges[math.ceil(len(data.ranges) / 2) - 1]))
-        self.lidar_sample2.append((data.ranges[(math.ceil(len(data.ranges) / 2) - 1) - (each // 2)]))
-        self.lidar_sample2.append((data.ranges[(math.ceil(len(data.ranges) / 2) - 1) - (each // 2)]))
-        self.lidar_sample2.append((data.ranges[math.ceil(len(data.ranges) / 4) - 1]))
-        self.lidar_sample2.append((data.ranges[math.ceil(len(data.ranges) * (3/4)) - 1]))
-        self.lidar_sample2.append((data.ranges[(math.ceil(len(data.ranges) * (3/4)) - 1) + (each // 2)]))
-        self.lidar_sample2.append((data.ranges[(math.ceil(len(data.ranges) * (3/4)) - 1) - (each // 2)]))
-   
-        back_lasers = len(data.ranges) - front_lasers
-        back_dist = [(back_lasers // self.back_split) for _ in range(self.back_split)]
-        for i in range(back_lasers % self.back_split): back_dist[i] += 1
+        sampled_points = self.get_lidar_samples(data, num_ranges)
 
-        dist = back_dist[:math.ceil(self.back_split/2)] + front_dist + back_dist[math.ceil(self.back_split/2):]
+        self.lidar_sample2 = [distance for _, distance in sampled_points]
 
-        if self.back_split % 2 == 0:
-            min_range =  0
-            max_range = dist[0]
-            self.lidar_sample2.append(min(data.ranges[min_range:max_range]))
-        else:
-            min_range =  len(data.ranges) - (dist[0] // 2)
-            max_range = (dist[0] // 2) + (dist[0] % 2)
-            self.lidar_sample2.append(min(data.ranges[min_range:len(data.ranges)] + data.ranges[0:max_range]))
-        
-        for i in range(1, self.split):
-            min_range = max_range
-            max_range += dist[i]
-            self.lidar_sample2.append(min(data.ranges[min_range:max_range]))
+        self.robot2_observation_space = self.lidar_sample2 
 
-        for i in range (len(self.lidar_sample2)): self.lidar_sample2[i] = min(self.lidar_sample2[i], 2)
-        
-        #print("ROBOT 2")
-        # Calculate indices for #5 and #6 based on your setup
-        end_index = math.ceil(len(data.ranges) * (3/4)) - 1 + (each // 2*4) 
-        start_index = math.ceil(len(data.ranges) * (3/4)) - 1 - (each // 2*4)
-
-        front_distance, back_distance, front_edge_index, back_edge_index = self.find_object_front_and_back(data.ranges, start_index, end_index, 2)
-        #print(f"2 - Object front side distance: {front_distance}, back side distance: {back_distance}")
-        self.lidar_sample2[5] = back_distance
-        self.lidar_sample2[6] = front_distance
-
-        self.naction2 += 1
-        self.last_execution_time2 = current_time2  # Update the last execution time
+        self.naction2 = True
 
 
     def find_object_front_and_back(self, data_ranges, start_index, end_index, side):
