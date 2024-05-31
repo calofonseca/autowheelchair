@@ -1,0 +1,8 @@
+Um dos lidares para tras e mais para os lados X
+Supervised Learning (??)
+Redes temporais (LSTM) COm frames anteriores onde o robo está
+Mais pontos do lidar X
+Coredor muito estreito
+Alterar ponto de objetivo a 3 quartos da curva
+Ver o sigma
+Alterar Reward para ser progressivo a medida que vai contra parede ou obstaculo.

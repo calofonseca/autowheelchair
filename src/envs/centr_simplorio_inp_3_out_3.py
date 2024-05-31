@@ -26,11 +26,10 @@ class TwoWheelChairEnvLessActions(Env):
 
     def __init__(self):
 
+        #for syncronization purposes
         self.previousa1 = 0
         self.previousa2 = 0
         self.action_duration = 0.2
-
-        #current data
         self.distance1 = None
         self.distance2 = None
         self.previous_distance1 = None
@@ -109,36 +108,34 @@ class TwoWheelChairEnvLessActions(Env):
         self.twist_pub = rospy.Publisher(self.twist_topic, Twist, queue_size=1)
         self.twist_pub2 = rospy.Publisher(self.twist_topic2, Twist, queue_size=1)
 
-        
-        #learning env
-        self.fixed_linear_speed = 0.3
+        #ENV
+        #ACTION SPACE
+        self.fixed_linear_speed = 0.5
+        self.fixed_angular_speed = 0.5
+        self.actions = [(0, 0), 
+                        (self.fixed_linear_speed, self.fixed_angular_speed), 
+                        (self.fixed_linear_speed, -self.fixed_angular_speed)]
 
-        # Define observation space for each robot
-        self.num_observations = 15  # Number of LiDAR samples
+        n_actions = (len(self.actions) , len(self.actions)) #!!!         
+                        
+        self.action_space = Discrete(np.prod(n_actions)) #!!!
+
+        #OBSERVATION SPACE
+        #Centralized 3 - distance to wall left robot, distance between them, distance to wall right robot
+        self.num_observations =  3 # Number of LiDAR samples
         self.min_range = 0  # Minimum range measured by LiDAR
         self.max_range = 2  # Maximum range (set based on your LiDAR specs)
 
         # Create observation spaces
-        self.robot1_observation_space_box = Box(low=self.min_range, high=self.max_range, shape=(self.num_observations,), dtype=np.float32)
-        self.robot2_observation_space_box = Box(low=self.min_range, high=self.max_range, shape=(self.num_observations,), dtype=np.float32)
+        self.observation_space_box = Box(low=self.min_range, high=self.max_range, shape=(self.num_observations,), dtype=np.float32)
         
-        # Assuming these are your maximum and minimum angular velocities
-        self.max_angular_speed = 1.5  # Example max angular speed
-        self.min_angular_speed = -1.5 # Example min angular speed
-
-        # Define the action spaces for each robot
-        self.robot1_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
-        self.robot2_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
-
         self.robot1_observation_space = []
         self.robot2_observation_space = []
-        self.robot1_action_space = 0
-        self.robot2_action_space = 0
+        self.action_space = 0
 
         #Wait for observations to fill in (lidar samples + previous actions + calculated features)
         while len(self.robot1_observation_space) != self.num_observations  and len(self.robot2_observation_space) != self.num_observations :pass
-        self.state = [self.robot1_observation_space, self.robot2_observation_space]
-
+        self.state = [self.robot1_observation_space, self.robot2_observation_space[0]]
 
     def change_robot_speed(self, robot, angular, linear= None):
         """
@@ -164,12 +161,10 @@ class TwoWheelChairEnvLessActions(Env):
         :param a2: The action to apply for robot 2.
         """
         #Apply Actions
-        #Actions only reflet the changes in angular speed so the sum of the previous and new is made
         self.change_robot_speed(1, a1)
         self.change_robot_speed(2, a2)
-        #self.previousa1 = self.previousa1 + a1
-        #self.previousa2 = self.previousa2 + a2
-
+        
+        #Control Time
         time.sleep(self.action_duration)
 
         # Stop the robots to gather data and calculate rewards
@@ -180,14 +175,14 @@ class TwoWheelChairEnvLessActions(Env):
         self.naction1=False
         self.naction2=False
         while not (self.naction1 and self.naction2):
-            # Optionally, include a small delay to prevent the loop from consuming too much CPU
+            # small delay to prevent the loop from consuming too much CPU
             time.sleep(0.0001)  
        
         reward=0
         reward1 = 0
         reward2 = 0
 
-        self.state = [self.robot1_observation_space, self.robot2_observation_space]
+        self.state = [self.robot1_observation_space, self.robot2_observation_space[0]]
         
         done = False
         
@@ -229,22 +224,10 @@ class TwoWheelChairEnvLessActions(Env):
         else:  
             reward = 0
 
-        #if enter_end: reward += 100
-        #if exit_end: reward -= 100
-
         #REWARD CALCULATION
         #Penalizing Actions
             
-        reward1 += self.optimized_reward_function(a1, 1)
-        reward2 += self.optimized_reward_function(a2, 2)
-        
-        #Penalizing repetitive Changes in direction #Might disapeer
-        #reward1 += self.apply_penalty_direction_changes(self.action_history,a1)
-        #reward2 += self.apply_penalty_direction_changes(self.action_history2,a2)   
-
-        #Penalizing Repetitive Actions #Might disapeer
-        #reward1 += self.apply_penalty_if_repetitive(self.action_history,a1,reward)
-        #reward2 += self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
+        reward += self.centralized_reward_function(a1, a2)
 
         self.total_steps += 1
         if a1 == 1:self.forward_steps += 0.5
@@ -265,25 +248,11 @@ class TwoWheelChairEnvLessActions(Env):
 
 
         # Split the state for each agent based on your state formation
-        rewards = [reward + reward1, reward + reward2]  # If shared rewards, otherwise calculate individually
-        dones = done  # Both agents likely share the same done flag in your scenario
         infos = [{}, {}]  # Additional info if any, per agent
         self.episode += 1
-        return self.state, rewards, dones, infos      
+        return self.state, reward, done, infos      
 
-    
-    def apply_penalty_direction_changes(self, action_history, a_current):
-        #Penalizing Rapid Direction Changes
-        reward = 0 
-        if len(action_history) > 0:
-            last_action = action_history[-1]
-            if (last_action == 2 and a_current == 3) or (last_action == 3 and a_current == 2):
-                reward -= (300 / self.max_episodes) * 5
-
-        # Return the modified reward
-        return reward
-
-    def optimized_reward_function(self, action, chair):
+    def centralized_reward_function(self, action, chair):
         # Constants
         base_reward = 10  # Constant base reward
         penalty_scale = 2  # Adjusted for quadratic penalty
@@ -428,7 +397,7 @@ class TwoWheelChairEnvLessActions(Env):
         while not (self.naction1 and self.naction2):
             # Optionally, include a small delay to prevent the loop from consuming too much CPU
             time.sleep(0.0001)  
-        self.state = [self.robot1_observation_space,  self.robot2_observation_space]
+        self.state = [self.robot1_observation_space, self.robot2_observation_space[0]]
 
         self.action_history = []
         self.rotation_counter = 0

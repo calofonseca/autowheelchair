@@ -76,7 +76,7 @@ plugins:
     origin: [0.0, 0.0, 0.0]
     range: 10
     # angle: {min: -3.14159265359, max: 3.14159265359, increment: 0.05235987755}
-    angle: {min: -3.14159265359, max: 3.14159265359, increment: 0.06981317007}
+    angle: {min: -3.14159265359, max: 3.14159265359, increment: 0.0351016}
     noise_std_dev: 0.015
     update_rate: 7
     layers: ["static", "robot1"]
