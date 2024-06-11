@@ -10,17 +10,11 @@ class BaseClass:
         end_reached=False
         step2 =0
         while step_count < total_steps:
-            print("RESETED")
             obs = env.reset()
             while True:
                 step_start_time = time.time()
-                print()
-                print(f"STEP:{step_count}")
-
                 action1, action2 = self.predict(obs, step2)
-                print(f"ACTION1: {action1} ACTION2: {action2}")
                 next_obs, reward, done, _ = env.step(action1, action2)
-                print(f"Reward:{reward}")
                 self.update(obs, [action1, action2], reward, next_obs, done)
                 obs = next_obs
                 step_count += 1

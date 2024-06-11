@@ -10,6 +10,7 @@ import random
 from collections import namedtuple, deque
 import copy
 from base import BaseClass as RL
+from gym.spaces import Box
 # conditional imports
 try:
     import torch
@@ -82,6 +83,27 @@ class MADDPG(RL):
 
         self.scaler = GradScaler()
         self.exploration_done = False
+
+
+                # Assuming these are your maximum and minimum angular velocities
+        self.max_angular_speed = 1.5  # Example max angular speed
+        self.min_angular_speed = -1.5 # Example min angular speed
+
+        # Assuming these are your maximum and minimum linear velocities
+        self.max_linear_speed = 0.6 
+        self.min_linear_speed = 0.1 
+
+        # Define the action spaces for each robot
+        self.robot1_action_space_box = Box(
+            low=np.array([self.min_linear_speed, self.min_angular_speed]), 
+            high=np.array([self.max_linear_speed, self.max_angular_speed]), 
+            dtype=np.float32
+        )
+        self.robot2_action_space_box = Box(
+            low=np.array([self.min_linear_speed, self.min_angular_speed]), 
+            high=np.array([self.max_linear_speed, self.max_angular_speed]), 
+            dtype=np.float32
+        )
 
     def update(self, observations, actions, reward, next_observations, done):
 
@@ -160,26 +182,31 @@ class MADDPG(RL):
     def get_deterministic_actions(self, observations):
         with torch.no_grad():
             encoded_observations = [self.get_encoded_observations(i, obs) for i, obs in enumerate(observations)]
-            actions = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
-                   for actor, obs in zip(self.actors, encoded_observations)]
-            print("Deterministic Actions:")
-            print(actions)
-            return actions
-
+            raw_actions = [actor(torch.FloatTensor(obs).to(self.device)).cpu().numpy()
+                           for actor, obs in zip(self.actors, encoded_observations)]
+            mapped_actions = [self.map_action(action, agent_idx) for agent_idx, action in enumerate(raw_actions)]
+            return mapped_actions
+        
     def get_exploration_prediction(self, states: List[List[float]], step) -> List[float]:
         deterministic_actions = self.get_deterministic_actions(states)
         noisy_actions = []
-        # Loop over each action and corresponding noise generator
         for idx, action in enumerate(deterministic_actions):
-            # Retrieve the correct noise generator for the current agent
             noise = self.noise[idx].sample()
-            # Add noise to the deterministic action
             noisy_action = action + noise
-            noisy_actions.append(noisy_action)
-
-        print("Exploration Actions with Noise:")
-        print(noisy_actions)
+            mapped_noisy_action = self.map_action(noisy_action, idx)
+            noisy_actions.append(mapped_noisy_action)
         return noisy_actions
+
+    def map_action(self, action, agent_idx):
+        if agent_idx == 0:
+            action_space = self.robot1_action_space_box
+        else:
+            action_space = self.robot2_action_space_box
+
+        low = action_space.low
+        high = action_space.high
+        scaled_action = low + (0.5 * (action + 1.0) * (high - low))
+        return np.clip(scaled_action, low, high)
 
     def predict(self, observations, step, deterministic=False):
         if deterministic:

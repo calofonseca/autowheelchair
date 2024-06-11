@@ -43,6 +43,8 @@ class TwoWheelChairEnvLessActions(Env):
         self.front_split = 9
         self.back_split = 3
         self.split = self.front_split + self.back_split
+
+        self.step_number = 0
         
         self.lidar_sample = []
         self.lidar_sample2 = []
@@ -114,7 +116,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.fixed_linear_speed = 0.3
 
         # Define observation space for each robot
-        self.num_observations = 15  # Number of LiDAR samples
+        self.num_observations = 8  # Number of LiDAR samples + side robot info
         self.min_range = 0  # Minimum range measured by LiDAR
         self.max_range = 2  # Maximum range (set based on your LiDAR specs)
 
@@ -126,9 +128,33 @@ class TwoWheelChairEnvLessActions(Env):
         self.max_angular_speed = 1.5  # Example max angular speed
         self.min_angular_speed = -1.5 # Example min angular speed
 
+        # Assuming these are your maximum and minimum linear velocities
+        self.max_linear_speed = 0.1 
+        self.min_linear_speed = 0.6 
+
         # Define the action spaces for each robot
-        self.robot1_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
-        self.robot2_action_space_box = Box(low=np.array([self.min_angular_speed]), high=np.array([self.max_angular_speed]), dtype=np.float32)
+        self.robot1_action_space_box = Box(
+            low=np.array([self.min_angular_speed, self.min_linear_speed]), 
+            high=np.array([self.max_angular_speed, self.max_linear_speed]), 
+            dtype=np.float32
+        )
+        self.robot2_action_space_box = Box(
+            low=np.array([self.min_angular_speed, self.min_linear_speed]), 
+            high=np.array([self.max_angular_speed, self.max_linear_speed]), 
+            dtype=np.float32
+        )
+
+        self.robot1_observation_space = []
+        self.robot2_observation_space = []
+        self.robot1_action_space = [0,0]
+        self.robot2_action_space = [0,0]
+
+        # Wait for observations to fill in (lidar samples + previous actions + calculated features)
+        while len(self.robot1_observation_space) != self.num_observations and len(self.robot2_observation_space) != self.num_observations:
+            pass
+        self.state = [self.robot1_observation_space, self.robot2_observation_space]
+
+
 
         self.robot1_observation_space = []
         self.robot2_observation_space = []
@@ -140,7 +166,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.state = [self.robot1_observation_space, self.robot2_observation_space]
 
 
-    def change_robot_speed(self, robot, angular, linear= None):
+    def change_robot_speed(self, robot, linear=None, angular= None):
         """
         Apply the given action to the robot.
         :param action: The action to apply.
@@ -163,18 +189,20 @@ class TwoWheelChairEnvLessActions(Env):
         :param a1: The action to apply for robot 1.
         :param a2: The action to apply for robot 2.
         """
+        print()
+        print()
+        print(f"---------Episode {self.total_episodes} - Step {self.step_number} - (Total Steps {self.total_steps})--------")
+        print(f"Applying Actions: Robot 1 {a1}; Robot 2 {a2}")
         #Apply Actions
         #Actions only reflet the changes in angular speed so the sum of the previous and new is made
-        self.change_robot_speed(1, a1)
-        self.change_robot_speed(2, a2)
-        #self.previousa1 = self.previousa1 + a1
-        #self.previousa2 = self.previousa2 + a2
+        self.change_robot_speed(1, a1[0], a1[1])
+        self.change_robot_speed(2, a2[0], a2[1])
 
         time.sleep(self.action_duration)
 
         # Stop the robots to gather data and calculate rewards
-        self.change_robot_speed(1, 0, linear=0)
-        self.change_robot_speed(2, 0, linear=0)
+        self.change_robot_speed(1, 0, 0)
+        self.change_robot_speed(2, 0, 0)
 
         #Change variable to indicate that the lidar need to get the latest observations
         self.naction1=False
@@ -188,6 +216,8 @@ class TwoWheelChairEnvLessActions(Env):
         reward2 = 0
 
         self.state = [self.robot1_observation_space, self.robot2_observation_space]
+
+        print(f"New Observations: Robot 1 {self.robot1_observation_space}; Robot 2 {self.robot2_observation_space}")
         
         done = False
         
@@ -232,26 +262,17 @@ class TwoWheelChairEnvLessActions(Env):
         #if enter_end: reward += 100
         #if exit_end: reward -= 100
 
-        #REWARD CALCULATION
-        #Penalizing Actions
-            
+        #REWARD CALCULATION    
         reward1 += self.optimized_reward_function(a1, 1)
         reward2 += self.optimized_reward_function(a2, 2)
-        
-        #Penalizing repetitive Changes in direction #Might disapeer
-        #reward1 += self.apply_penalty_direction_changes(self.action_history,a1)
-        #reward2 += self.apply_penalty_direction_changes(self.action_history2,a2)   
 
-        #Penalizing Repetitive Actions #Might disapeer
-        #reward1 += self.apply_penalty_if_repetitive(self.action_history,a1,reward)
-        #reward2 += self.apply_penalty_if_repetitive(self.action_history2,a2,reward)
+        print(f"Rewards: Robot 1 {reward + reward1}, Robot 2 {reward + reward2}")
 
         self.total_steps += 1
-        if a1 == 1:self.forward_steps += 0.5
-        if a2 == 1:self.forward_steps += 0.5
-
+        self.step_number += 1
         if done:
             self.total_episodes += 1
+            self.step_number = 0
             if self.end_reached and self.end_reached2: self.success_episodes += 1
 
         info = {}
@@ -263,7 +284,6 @@ class TwoWheelChairEnvLessActions(Env):
         self.data['rewards'][-1].append(reward)
         self.data['positions'][-1].append((self.position, self.position2))
 
-
         # Split the state for each agent based on your state formation
         rewards = [reward + reward1, reward + reward2]  # If shared rewards, otherwise calculate individually
         dones = done  # Both agents likely share the same done flag in your scenario
@@ -271,82 +291,38 @@ class TwoWheelChairEnvLessActions(Env):
         self.episode += 1
         return self.state, rewards, dones, infos      
 
-    
-    def apply_penalty_direction_changes(self, action_history, a_current):
-        #Penalizing Rapid Direction Changes
-        reward = 0 
-        if len(action_history) > 0:
-            last_action = action_history[-1]
-            if (last_action == 2 and a_current == 3) or (last_action == 3 and a_current == 2):
-                reward -= (300 / self.max_episodes) * 5
-
-        # Return the modified reward
-        return reward
-
     def optimized_reward_function(self, action, chair):
-        # Constants
-        base_reward = 10  # Constant base reward
-        penalty_scale = 2  # Adjusted for quadratic penalty
-        progress_reward_scale = 1  # Balanced scale for rewarding progress towards the goal
-        safe_distance = 0.35  # Distance considered safe from obstacles
-        safe_distance_sides = 0.30 # Distance considered safe from obstacles
-        turn_penalty = -10  # Penalty for unnecessary turning
-        turn_reward = 5  # Reward for wisely turning away from an obstacle
-
-
-        # Initialize reward
-        reward = base_reward
-
-        #angles = [0, -10, 10, -25, 25, -45, 45, -65, 65, -80, 80, -90, 90, -100, 100 ]  # Define specific angles to sample
+        #angles = [0, -10, -25, -45, -65, -89, distance, angle ]  # Define specific angles to sample
+        target_distance=0.3
+        angle_penalty_factor=1
+        distance_penalty_factor=1 
+        wall_penalty_factor=1
+        wall_threshold=0.30
+        progress_reward_scale=0.5
 
         # Get lidar samples for obstacle detection
         lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
-        front_obstacles = [lidar[i] for i in range(0, 4)]
-        # Manually specify indices for left obstacles
-        left_obstacles = [lidar[5], lidar[7],lidar[9], lidar[11], lidar[13]]
-
-        # Manually specify indices for right obstacles
-        right_obstacles = [lidar[6], lidar[8],lidar[10], lidar[12], lidar[14]]
-
-        # Check for clear paths
-        front_clear = all(dist > safe_distance for dist in front_obstacles)
-        left_clear = all(dist > safe_distance_sides for dist in left_obstacles)
-        right_clear = all(dist > safe_distance_sides for dist in right_obstacles)
+        lidar_readings = lidar[:5]  # First 8 elements are the LiDAR readings
+        robot_distance = lidar[6]   # Distance to the other robot
+        robot_angle = lidar[7]      # Angle to the other robot
         
-
-
-        # Determine if there are obstacles in front, left, and right
-        front_clear = all(d > safe_distance for d in front_obstacles)
-        left_clear = all(d > safe_distance_sides for d in left_obstacles)
-        right_clear = all(d > safe_distance_sides for d in right_obstacles)
-
-        # Handle turning actions
-        if action < -0.10 :  # Turning left
-            if front_clear:
-                reward += turn_penalty  # Penalize if turning left unnecessarily
-            elif not front_clear and left_clear:
-                reward += turn_reward  # Reward if turning away from an obstacle
-            elif not right_clear and left_clear:
-                reward += turn_reward  # Reward if turning away from an obstacle
-        elif action > 0.10:  # Turning right
-            if front_clear:
-                reward += turn_penalty  # Penalize if turning right unnecessarily
-            elif not front_clear and right_clear:
-                reward += turn_reward  # Reward if turning away from an obstacle on the right
-            elif not left_clear and right_clear:
-                reward += turn_reward  # Reward if turning away from an obstacle on the right
-
-        # Penalize moving forward when an obstacle is directly in front
-        if action < 0.10 and action >-0.10 and not front_clear:
-            reward += turn_penalty
-
-        # Quadratic penalty for being too close to an obstacle, considering all relevant directions
-        min_distances = front_obstacles + left_obstacles + right_obstacles
-        min_distance_to_obstacle = min(min_distances)
-        if min_distance_to_obstacle < safe_distance:
-            penalty = (penalty_scale * (1 - min_distance_to_obstacle / safe_distance)) ** 2
-            reward -= penalty
-
+        # Calculate angle penalty
+        angle_difference = abs(abs(robot_angle) - 90)  # Difference from the target angle
+        angle_penalty = angle_penalty_factor * angle_difference
+        
+        # Calculate distance penalty
+        distance_difference = abs(robot_distance - target_distance)  # Difference from the target distance
+        distance_penalty = distance_penalty_factor * distance_difference
+        
+        # Calculate wall penalty
+        wall_penalty = 0
+        for distance in lidar_readings:
+            if distance < wall_threshold:
+                wall_penalty += wall_penalty_factor * (wall_threshold - distance)
+        
+        # Total reward is negative sum of penalties
+        total_penalty = angle_penalty + distance_penalty + wall_penalty
+        reward = -total_penalty
 
         # Reward or penalize based on progress towards the goal
         current_distance = self.distance1 if chair == 1 else self.distance2
@@ -357,9 +333,7 @@ class TwoWheelChairEnvLessActions(Env):
 
             # Adjust reward or penalty for progress
             if distance_improvement > 0:
-                reward += progress_reward_scale * distance_improvement * 100
-            else:
-                reward += progress_reward_scale * distance_improvement * 50  # Less punitive for negative progress
+                reward += distance_improvement 
 
         # Update previous distance for next step comparison
         if chair == 1:
@@ -374,8 +348,8 @@ class TwoWheelChairEnvLessActions(Env):
     
     def reset(self):
         # Stop the robots to gather data and calculate rewards
-        self.change_robot_speed(1, 0, linear=0)
-        self.change_robot_speed(2, 0, linear=0)
+        self.change_robot_speed(1, 0, 0)
+        self.change_robot_speed(2, 0, 0)
         self.lidar_sample = []
         self.lidar_sample2 = []
 
@@ -421,8 +395,8 @@ class TwoWheelChairEnvLessActions(Env):
 
         self.robot1_observation_space = []
         self.robot2_observation_space = []
-        self.robot1_action_space = 0
-        self.robot2_action_space = 0
+        self.robot1_action_space = [0,0]
+        self.robot2_action_space = [0,0]
 
         #Wait for observations to fill in (lidar samples + previous actions + calculated features)
         while not (self.naction1 and self.naction2):
@@ -441,6 +415,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.consecutive_rotations2 = 0
 
         self.forward_reward = 0
+        self.step_number=0
 
         self.map += 1
         if self.map == len(self.start_points): self.map = 0
@@ -456,96 +431,157 @@ class TwoWheelChairEnvLessActions(Env):
    
         return [self.lidar_sample, self.lidar_sample2]
 
-    def get_lidar_samples(self, data, num_ranges):
-        angles = [0, -10, 10, -25, 25, -45, 45, -65, 65, -80, 80, -90, 90, -100, 100 ]  # Define specific angles to sample
+    def get_lidar_samples(self, data, num_ranges, chair):
+        # Define the angles to sample based on the chair side
+        if chair == 2:  # Check on the right side
+            angles = [0, -15, -45, -75, -90, -100]
+        else:  # Check on the right side
+            angles = [0, 15, 45, 75, 90, 100]
+        
         sampled_points = []
+        
         for angle in angles:
-            index = int((angle + 180) / 360 * num_ranges) % num_ranges  # Calculate index
-            distance = data.ranges[index]  # Get the corresponding distance from LiDAR data
-            sampled_points.append((angle, distance))  # Store distance
+            # Map the angle to the corresponding index in the LIDAR data array
+            # LIDAR angle range: -180 to 180 degrees, data.ranges covers this range
+            # Convert the angle to the range index
+            index = int((angle + 180) / 360 * num_ranges) % num_ranges
+            
+            # Get the corresponding distance from LIDAR data
+            distance = data.ranges[index]
+            if distance > self.max_range: distance= self.max_range
+            
+            # Store the sampled angle and distance
+            sampled_points.append((angle, distance))
+        
         return sampled_points
 
-    def publish_highlighted_points(self, sampled_points):
+    def publish_highlighted_points(self, sampled_points, discontinuity_points, topic_name):
         marker = Marker()
         marker.header.frame_id = "static_laser_link1"
         marker.header.stamp = rospy.Time.now()
         marker.type = marker.POINTS
         marker.action = marker.ADD
-        marker.points = [Point(np.cos(np.deg2rad(angle)) * distance, np.sin(np.deg2rad(angle)) * distance, 0) for angle, distance in sampled_points]
+
+        points = []
+        colors = []
+        
+        # Add sampled points
+        for angle, distance in sampled_points:
+            points.append(Point(np.cos(np.deg2rad(angle)) * distance, np.sin(np.deg2rad(angle)) * distance, 0))
+            colors.append(ColorRGBA(1.0, 0.0, 0.0, 1.0))  # Red color for regular points
+        
+        # Add discontinuity points
+        for angle, distance in discontinuity_points:
+            points.append(Point(np.cos(np.deg2rad(angle)) * distance, np.sin(np.deg2rad(angle)) * distance, 0))
+            colors.append(ColorRGBA(0.0, 1.0, 0.0, 1.0))  # Green color for discontinuity points
+
+        marker.points = points
+        marker.colors = colors
         marker.scale.x = 0.15
         marker.scale.y = 0.15
-        marker.color = ColorRGBA(1.0, 0.0, 0.0, 1.0)  # Red color
-        self.points_pub.publish(marker)
 
-    def sample_lidar(self,data): #LEFT SIDE ROBOT
-        if self.naction1: return
+        publisher = rospy.Publisher(topic_name, Marker, queue_size=10)
+        publisher.publish(marker)
+
+    def find_discontinuity_and_robot(self, data_ranges, num_ranges, side):
+        discontinuity_threshold = 0.7  # Arbitrary factor to indicate significant decrease
+        consecutive_count = 3  # Number of consecutive points needed to confirm discontinuity
+        
+        if side == "right":
+            # Check right side (0 to -150 degrees)
+            start_index = int((0 + 180) / 360 * num_ranges) % num_ranges
+            end_index = int((-150 + 180) / 360 * num_ranges) % num_ranges
+        elif side == "left":
+            # Check left side (0 to 150 degrees)
+            start_index = int((0 + 180) / 360 * num_ranges) % num_ranges
+            end_index = int((150 + 180) / 360 * num_ranges) % num_ranges
+
+        if end_index < start_index:
+            start_index, end_index = end_index, start_index
+
+        detected_points = []
+        discontinuity_points = []
+        in_discontinuity = False
+        
+        for i in range(start_index, end_index):
+            if i > 0:
+                if not in_discontinuity and data_ranges[i] < data_ranges[i - 1] * discontinuity_threshold:
+                    # Start of a new discontinuity
+                    discontinuity_start = i
+                    in_discontinuity = True
+                    discontinuity_points.append((i, data_ranges[i]))
+                elif in_discontinuity:
+                    # Continue until a significant increase is detected
+                    if data_ranges[i] > data_ranges[i - 1] / discontinuity_threshold:
+                        # End of the discontinuity
+                        in_discontinuity = False
+                        break
+                    else:
+                        discontinuity_points.append((i, data_ranges[i]))
+        
+        if discontinuity_points:
+            angles_distances = [(k / num_ranges * 360 - 180, data_ranges[k]) for k, _ in discontinuity_points]
+            min_distance = min(data_ranges[k] for k, _ in discontinuity_points)
+            min_index = data_ranges.index(min_distance)
+            angle = (min_index / num_ranges) * 360 - 180
+            return min_distance, angle, angles_distances
+        else:
+            return None, None, []
+
+    def sample_lidar(self, data):  # LEFT SIDE ROBOT
+        if self.naction1:
+            return
         print("Sampling Lidar 1")
 
         num_ranges = len(data.ranges)
         self.lidar_sample = []
 
-        sampled_points = self.get_lidar_samples(data, num_ranges)
+        sampled_points = self.get_lidar_samples(data, num_ranges, 1)
+        for angle, distance in sampled_points:
+            self.lidar_sample.append(distance)
 
-        self.publish_highlighted_points(sampled_points)
+        robot_distance, robot_angle, discontinuity_points = self.find_discontinuity_and_robot(data.ranges, num_ranges, "right")
+        if robot_distance is not None and robot_angle is not None:
+            self.lidar_sample.append(robot_distance)
+            self.lidar_sample.append(robot_angle)
+        else:
+            self.lidar_sample.append(-1)
+            self.lidar_sample.append(-1)
 
-        self.lidar_sample = [distance for _, distance in sampled_points]
 
-        self.robot1_observation_space = self.lidar_sample  
+        self.publish_highlighted_points(sampled_points, discontinuity_points, "left_lidar_markers")
+
+        self.robot1_observation_space = self.lidar_sample
+        print(self.robot1_observation_space)
 
         self.naction1 = True
 
-    def sample_lidar2(self, data):
-        if self.naction2: return
+    def sample_lidar2(self, data):  # RIGHT SIDE ROBOT
+        if self.naction2:
+            return
         print("Sampling Lidar 2")
-      
+
         num_ranges = len(data.ranges)
         self.lidar_sample2 = []
 
-        sampled_points = self.get_lidar_samples(data, num_ranges)
+        sampled_points = self.get_lidar_samples(data, num_ranges, 2)
+        for angle, distance in sampled_points:
+            self.lidar_sample2.append(distance)
 
-        self.lidar_sample2 = [distance for _, distance in sampled_points]
+        robot_distance, robot_angle, discontinuity_points= self.find_discontinuity_and_robot(data.ranges, num_ranges, "left")
+        if robot_distance is not None and robot_angle is not None:
+            self.lidar_sample2.append(robot_distance)
+            self.lidar_sample2.append(robot_angle)
+        else:
+            self.lidar_sample2.append(-1)
+            self.lidar_sample2.append(-1)
 
-        self.robot2_observation_space = self.lidar_sample2 
+
+        self.publish_highlighted_points(sampled_points, discontinuity_points, "right_lidar_markers")
+
+        self.robot2_observation_space = self.lidar_sample2
 
         self.naction2 = True
-
-
-    def find_object_front_and_back(self, data_ranges, start_index, end_index, side):
-        # Find the closest point in the segment, which is part of the object
-        min_distance = min(data_ranges[start_index:end_index+1])
-        closest_point_index = data_ranges.index(min_distance, start_index, end_index+1)
-
-        # Initialize indices for front and back edges
-        front_edge_index = closest_point_index
-        back_edge_index = closest_point_index
-
-        # Scan backward (towards start_index) to find where distance starts increasing (front edge)
-        for i in range(closest_point_index, start_index-1, -1):  # Note: step is -1 to move backwards
-            if data_ranges[i] > min_distance * 1.4:  # Arbitrary factor to indicate significant increase
-                front_edge_index = i + 1
-                break
-
-        # Scan forward (towards end_index) to find where distance starts increasing (back edge)
-        for i in range(closest_point_index, end_index+1):
-            if data_ranges[i] > min_distance * 1.4:  # Same arbitrary factor as above
-                back_edge_index = i - 1
-                break
-                
-        # Verification step: Check if no significant increase is detected
-        if front_edge_index == back_edge_index == closest_point_index:
-            # No significant increase detected, return -1 for both distances and indices
-            return -1, -1, -1, -1
-
-        # Return distances at front and back edges
-        front_distance = data_ranges[front_edge_index]
-        back_distance = data_ranges[back_edge_index]
-
-        #if side 1, means robot1, so return according to inverted logic of the right side
-        if side == 1:
-            return back_distance, front_distance, back_edge_index, front_edge_index
-        elif side == 2:
-            return front_distance, back_distance, front_edge_index, back_edge_index
-
 
     def check_collisions(self, data):
         if self.collisions: return
@@ -579,15 +615,9 @@ class TwoWheelChairEnvLessActions(Env):
     def update_position2(self, data):
         rotation = euler_from_quaternion([data.pose.pose.orientation.x,data.pose.pose.orientation.y,data.pose.pose.orientation.z,data.pose.pose.orientation.w])[2]
         self.position2 = (data.pose.pose.position.x, data.pose.pose.position.y, rotation)
-    
-
-
-
-
-
 
     def reset_robots(self):
-        self.change_robot_position('robot1', 11.25, 4.5, 1.57079632679)
+        self.change_robot_position('robot1', 11.25, 4.5, 2.57079632679)
         self.change_robot_position('robot2', 11.25, 4.2, 1.57079632679)
         self.change_robot_position('prox', 11.25, 4.8, 0)
 
@@ -602,8 +632,8 @@ class TwoWheelChairEnvLessActions(Env):
         self.total_episodes = 0
         self.success_episodes = 0
         self.total_steps = 0
-        self.forward_steps = 0
         self.adj_steps = 0
+        self.step_number = 0
 
     def reset_data(self):
         self.data = {
