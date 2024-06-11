@@ -23,8 +23,8 @@ except ImportError:
 
 class MADDPG(RL):
     def __init__(self, num_agents, agent_observation_size, agent_action_size, actor_units: list = [512, 256, 128, 64, 32], critic_units: list = [1024, 512, 256, 128, 64, 32],
-                 buffer_size: int = int(5e5), batch_size: int = 128, gamma: float = 0.95, sigma=0.24,
-                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.995, tau=1e-2, *args, **kwargs):
+                 buffer_size: int = int(5e5), batch_size: int = 128, gamma: float = 0.95, sigma=0.30,
+                 lr_actor: float = 1e-5, lr_critic: float = 1e-4, decay_factor=0.999, tau=1e-2, *args, **kwargs):
 
         super().__init__(**kwargs)
 

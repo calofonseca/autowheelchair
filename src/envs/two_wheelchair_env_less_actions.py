@@ -116,7 +116,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.fixed_linear_speed = 0.3
 
         # Define observation space for each robot
-        self.num_observations = 8  # Number of LiDAR samples + side robot info
+        self.num_observations = 9  # Number of LiDAR samples + side robot info
         self.min_range = 0  # Minimum range measured by LiDAR
         self.max_range = 2  # Maximum range (set based on your LiDAR specs)
 
@@ -238,7 +238,6 @@ class TwoWheelChairEnvLessActions(Env):
 
 
         if self.collisions:
-            reward = -400
             #Changed for rewrad or penalizations based on distance to the wall
             print("COLIDED")
             done = True
@@ -251,7 +250,6 @@ class TwoWheelChairEnvLessActions(Env):
 
         #TODO    
         elif self.episode > self.max_episodes:
-            reward = -(600 + self.forward_reward) 
             print("EPISODES GREATER THAN")
             done = True
             #self.data['end_condition'][-1] = 'time out'
@@ -294,21 +292,20 @@ class TwoWheelChairEnvLessActions(Env):
     def optimized_reward_function(self, action, chair):
         #angles = [0, -10, -25, -45, -65, -89, distance, angle ]  # Define specific angles to sample
         target_distance=0.3
-        angle_penalty_factor=1
-        distance_penalty_factor=1 
+        angle_penalty_factor=2
+        distance_penalty_factor=1.5 
         wall_penalty_factor=1
-        wall_threshold=0.30
-        progress_reward_scale=0.5
+        wall_threshold=0.25
 
         # Get lidar samples for obstacle detection
         lidar = self.lidar_sample if chair == 1 else self.lidar_sample2
-        lidar_readings = lidar[:5]  # First 8 elements are the LiDAR readings
-        robot_distance = lidar[6]   # Distance to the other robot
-        robot_angle = lidar[7]      # Angle to the other robot
+        lidar_readings = lidar[:6]  # First 8 elements are the LiDAR readings
+        robot_distance = lidar[7]   # Distance to the other robot
+        robot_angle = lidar[8]      # Angle to the other robot
         
         # Calculate angle penalty
         angle_difference = abs(abs(robot_angle) - 90)  # Difference from the target angle
-        angle_penalty = angle_penalty_factor * angle_difference
+        angle_penalty = angle_penalty_factor * angle_difference 
         
         # Calculate distance penalty
         distance_difference = abs(robot_distance - target_distance)  # Difference from the target distance
@@ -318,7 +315,7 @@ class TwoWheelChairEnvLessActions(Env):
         wall_penalty = 0
         for distance in lidar_readings:
             if distance < wall_threshold:
-                wall_penalty += wall_penalty_factor * (wall_threshold - distance)
+                wall_penalty += wall_penalty_factor * (wall_threshold - distance) ** 2  # Exponential penalty
         
         # Total reward is negative sum of penalties
         total_penalty = angle_penalty + distance_penalty + wall_penalty
@@ -366,13 +363,18 @@ class TwoWheelChairEnvLessActions(Env):
             x -= 0.2
             x2 += 0.2
             theta = math.pi / 2
+            theta1 = random.uniform(0.5, 2.5)
+            theta2 = random.uniform(0.5, 2.5)
         else: 
             y -= 0.2
             y2 += 0.2
             theta = math.pi
 
-        self.change_robot_position("robot1", x, y, theta)
-        self.change_robot_position("robot2", x2, y2, theta)
+        print("THETAAAAAAAAAAAA")
+        print(theta)
+
+        self.change_robot_position("robot1", x, y, theta1)
+        self.change_robot_position("robot2", x2, y2, theta2)
 
         target_x = map[2][0]
         target_y = map[2][1]
@@ -432,11 +434,7 @@ class TwoWheelChairEnvLessActions(Env):
         return [self.lidar_sample, self.lidar_sample2]
 
     def get_lidar_samples(self, data, num_ranges, chair):
-        # Define the angles to sample based on the chair side
-        if chair == 2:  # Check on the right side
-            angles = [0, -15, -45, -75, -90, -100]
-        else:  # Check on the right side
-            angles = [0, 15, 45, 75, 90, 100]
+        angles = [0, -30, -60, -90, 30, 60, 90 ]
         
         sampled_points = []
         
@@ -484,7 +482,7 @@ class TwoWheelChairEnvLessActions(Env):
         publisher.publish(marker)
 
     def find_discontinuity_and_robot(self, data_ranges, num_ranges, side):
-        discontinuity_threshold = 0.7  # Arbitrary factor to indicate significant decrease
+        discontinuity_threshold = 0.6  # Arbitrary factor to indicate significant decrease
         consecutive_count = 3  # Number of consecutive points needed to confirm discontinuity
         
         if side == "right":
@@ -617,7 +615,7 @@ class TwoWheelChairEnvLessActions(Env):
         self.position2 = (data.pose.pose.position.x, data.pose.pose.position.y, rotation)
 
     def reset_robots(self):
-        self.change_robot_position('robot1', 11.25, 4.5, 2.57079632679)
+        self.change_robot_position('robot1', 11.25, 4.5, 1.57079632679)
         self.change_robot_position('robot2', 11.25, 4.2, 1.57079632679)
         self.change_robot_position('prox', 11.25, 4.8, 0)
 
